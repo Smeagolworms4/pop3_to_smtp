@@ -1,0 +1,17 @@
+services:
+  pop3-to-smtp:
+    build: .
+    image: pop3-to-smtp:latest
+    container_name: pop3-to-smtp
+    restart: unless-stopped
+    # Laisse le temps de finir la relève en cours plutôt que de couper au
+    # milieu d'un envoi.
+    stop_grace_period: 30s
+    # Écrit dans ./data avec ton UID plutôt qu'en root.
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file:
+      - .env
+    ports:
+      - "${WEB_PORT_HOST:-8080}:8080"
+    volumes:
+      - ./data:/data

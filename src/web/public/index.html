@@ -1,0 +1,1015 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pop3 → smtp</title>
+<link rel="stylesheet" href="/vendor/css/materialdesignicons.min.css" />
+<link rel="stylesheet" href="/vendor/vuetify.css" />
+<style>
+  html { overflow-y: auto; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .msg-list { max-height: 320px; overflow-y: auto; }
+  .clickable { cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="app">
+<v-app>
+  <v-app-bar density="comfortable" color="surface" flat border>
+    <v-app-bar-title>
+      <span class="font-weight-bold">pop3</span>
+      <span class="text-medium-emphasis mx-1">→</span>
+      <span class="text-primary font-weight-bold">smtp</span>
+    </v-app-bar-title>
+
+    <!-- État de la dernière action : un clic ouvre l'historique. -->
+    <v-chip class="mr-2 clickable" size="small" variant="tonal"
+            :color="lastRunColor" :prepend-icon="lastRunIcon"
+            @click="openHistory()">
+      {{ lastRunLabel }}
+    </v-chip>
+
+    <v-chip class="mr-2" size="small" variant="tonal" prepend-icon="mdi-timer-outline">
+      {{ nextRunLabel }}
+    </v-chip>
+
+    <v-btn class="mr-2" variant="tonal" prepend-icon="mdi-refresh"
+           :loading="status.running" :disabled="!canRun" @click="runAll()">
+      Relever maintenant
+    </v-btn>
+    <v-btn class="mr-1" variant="text" icon="mdi-history" title="Historique"
+           @click="openHistory()"></v-btn>
+    <v-btn class="mr-1" variant="text" icon="mdi-bell-outline" title="Alertes"
+           @click="openNotify()"></v-btn>
+    <v-btn class="mr-2" variant="text" icon="mdi-cog-outline" title="Réglages"
+           @click="openSettings()"></v-btn>
+  </v-app-bar>
+
+  <v-main>
+    <v-progress-linear v-if="status.running" indeterminate color="primary"></v-progress-linear>
+
+    <v-container fluid>
+      <!-- Premier lancement : on guide plutôt que d'afficher deux colonnes vides. -->
+      <v-alert v-if="!targets.length" type="info" variant="tonal" border="start" class="mb-4"
+               icon="mdi-numeric-1-circle-outline">
+        Commencez par déclarer une <strong>destination</strong> : le serveur SMTP par lequel les
+        messages repartiront, et l'adresse où les déposer.
+        <template #append>
+          <v-btn color="primary" variant="flat" size="small" @click="newTarget()">Ajouter</v-btn>
+        </template>
+      </v-alert>
+      <v-alert v-else-if="!sources.length" type="info" variant="tonal" border="start" class="mb-4"
+               icon="mdi-numeric-2-circle-outline">
+        Ajoutez maintenant une <strong>boîte POP3</strong> à relever, et choisissez vers quelle
+        destination elle doit repartir.
+        <template #append>
+          <v-btn color="primary" variant="flat" size="small" @click="newSource()">Ajouter</v-btn>
+        </template>
+      </v-alert>
+
+      <v-row>
+        <!-- Boîtes POP3 -->
+        <v-col cols="12" lg="7">
+          <div class="d-flex align-center mb-3">
+            <h2 class="text-h6">Boîtes relevées</h2>
+            <v-spacer></v-spacer>
+            <v-btn color="primary" variant="flat" size="small" prepend-icon="mdi-plus"
+                   :disabled="!targets.length" @click="newSource()">Ajouter une boîte</v-btn>
+          </div>
+
+          <v-card v-for="s in sources" :key="s.id" border class="mb-3">
+            <v-card-item>
+              <template #prepend>
+                <v-avatar :color="s.enabled ? 'primary' : 'surface-variant'" variant="tonal">
+                  <v-icon icon="mdi-email-arrow-right-outline"></v-icon>
+                </v-avatar>
+              </template>
+              <v-card-title class="d-flex align-center ga-2">
+                {{ s.name }}
+                <v-chip v-if="!s.enabled" size="x-small" variant="tonal">désactivée</v-chip>
+              </v-card-title>
+              <v-card-subtitle class="mono">
+                {{ s.user }} — {{ s.host }}:{{ s.port }}
+              </v-card-subtitle>
+            </v-card-item>
+
+            <v-card-text class="pt-0">
+              <div class="d-flex align-center flex-wrap ga-2 mb-2">
+                <v-chip size="small" variant="tonal" prepend-icon="mdi-arrow-right-bold-outline">
+                  {{ targetName(s.targetId) }}
+                </v-chip>
+                <v-chip size="small" variant="tonal"
+                        :prepend-icon="s.deleteAfterFetch ? 'mdi-file-move-outline' : 'mdi-content-copy'">
+                  {{ s.deleteAfterFetch ? 'déplacement' : 'copie' }}
+                </v-chip>
+                <v-chip size="small" variant="tonal" :prepend-icon="securityIcon(s.security)">
+                  {{ securityLabel(s.security) }}
+                </v-chip>
+              </div>
+
+              <!-- Dernier résultat connu pour cette boîte. -->
+              <v-alert v-if="lastFor(s.id)" density="compact" variant="tonal" class="mb-0"
+                       :type="alertType(lastFor(s.id).status)">
+                <div class="d-flex align-center flex-wrap ga-2">
+                  <span>{{ summarize(lastFor(s.id)) }}</span>
+                  <v-spacer></v-spacer>
+                  <span class="text-caption text-medium-emphasis">{{ ago(lastFor(s.id).at) }}</span>
+                </div>
+                <div v-if="lastFor(s.id).error" class="text-caption mt-1">
+                  {{ lastFor(s.id).error }}
+                </div>
+              </v-alert>
+              <div v-else class="text-caption text-medium-emphasis">Jamais relevée.</div>
+            </v-card-text>
+
+            <v-card-actions>
+              <v-btn variant="tonal" size="small" prepend-icon="mdi-refresh"
+                     :disabled="!canRun" @click="runSource(s)">Relever</v-btn>
+              <v-btn variant="text" size="small" prepend-icon="mdi-lan-connect"
+                     :loading="testing === s.id" @click="testSource(s)">Tester</v-btn>
+              <v-spacer></v-spacer>
+              <v-btn variant="text" size="small" icon="mdi-pencil" title="Modifier"
+                     @click="editSource(s)"></v-btn>
+              <v-btn variant="text" size="small" icon="mdi-playlist-check"
+                     title="Marquer le contenu actuel comme déjà traité"
+                     @click="markSeen(s)"></v-btn>
+              <v-btn variant="text" size="small" icon="mdi-delete-outline" title="Supprimer"
+                     @click="removeSource(s)"></v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-col>
+
+        <!-- Destinations SMTP -->
+        <v-col cols="12" lg="5">
+          <div class="d-flex align-center mb-3">
+            <h2 class="text-h6">Destinations</h2>
+            <v-spacer></v-spacer>
+            <v-btn color="primary" variant="flat" size="small" prepend-icon="mdi-plus"
+                   @click="newTarget()">Ajouter</v-btn>
+          </div>
+
+          <v-card v-for="t in targets" :key="t.id" border class="mb-3">
+            <v-card-item>
+              <template #prepend>
+                <v-avatar :color="t.enabled ? 'success' : 'surface-variant'" variant="tonal">
+                  <v-icon :icon="isGmail(t.host) ? 'mdi-gmail' : 'mdi-server-network'"></v-icon>
+                </v-avatar>
+              </template>
+              <v-card-title class="d-flex align-center ga-2">
+                {{ t.name }}
+                <v-chip v-if="!t.enabled" size="x-small" variant="tonal">désactivée</v-chip>
+              </v-card-title>
+              <v-card-subtitle class="mono">{{ t.to }}</v-card-subtitle>
+            </v-card-item>
+
+            <v-card-text class="pt-0">
+              <div class="d-flex align-center flex-wrap ga-2">
+                <v-chip size="small" variant="tonal" prepend-icon="mdi-server">
+                  {{ t.host }}:{{ t.port }}
+                </v-chip>
+                <v-chip size="small" variant="tonal"
+                        :prepend-icon="modeOf(t) === 'redirect' ? 'mdi-shield-check-outline' : 'mdi-shield-half-full'">
+                  {{ modeLabel(modeOf(t)) }}
+                </v-chip>
+              </div>
+            </v-card-text>
+
+            <v-card-actions>
+              <v-btn variant="text" size="small" prepend-icon="mdi-lan-connect"
+                     :loading="testing === t.id" @click="testTarget(t)">Tester</v-btn>
+              <v-spacer></v-spacer>
+              <v-btn variant="text" size="small" icon="mdi-pencil" title="Modifier"
+                     @click="editTarget(t)"></v-btn>
+              <v-btn variant="text" size="small" icon="mdi-delete-outline" title="Supprimer"
+                     @click="removeTarget(t)"></v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-col>
+      </v-row>
+    </v-container>
+  </v-main>
+
+  <!-- ------------------------------------------------------- Boîte POP3 -->
+  <v-dialog v-model="sourceDialog" max-width="720" scrollable>
+    <v-card>
+      <v-card-title>{{ sourceForm.id ? 'Modifier la boîte' : 'Nouvelle boîte POP3' }}</v-card-title>
+      <v-card-text>
+        <v-row dense>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="sourceForm.name" label="Nom" density="comfortable"
+                          placeholder="Boîte du FAI"></v-text-field>
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-select v-model="sourceForm.targetId" :items="targetItems" item-title="title"
+                      item-value="value" label="Rediriger vers" density="comfortable"></v-select>
+          </v-col>
+          <v-col cols="12" sm="7">
+            <v-text-field v-model="sourceForm.host" label="Serveur POP3" density="comfortable"
+                          placeholder="pop.mon-fai.fr"></v-text-field>
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-select v-model="sourceForm.security" :items="securityItems" item-title="title"
+                      item-value="value" label="Chiffrement" density="comfortable"
+                      @update:model-value="syncPop3Port"></v-select>
+          </v-col>
+          <v-col cols="6" sm="2">
+            <v-text-field v-model.number="sourceForm.port" label="Port" type="number"
+                          density="comfortable"></v-text-field>
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="sourceForm.user" label="Identifiant" density="comfortable"
+                          autocomplete="off"></v-text-field>
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="sourceForm.pass" label="Mot de passe" type="password"
+                          density="comfortable" autocomplete="new-password"></v-text-field>
+          </v-col>
+
+          <v-col cols="12">
+            <v-switch v-model="sourceForm.deleteAfterFetch" color="primary" density="compact"
+                      hide-details
+                      :label="sourceForm.deleteAfterFetch
+                        ? 'Déplacement : le message est supprimé de la boîte une fois renvoyé'
+                        : 'Copie : le message reste sur le serveur POP3'"></v-switch>
+            <v-switch v-model="sourceForm.enabled" color="primary" density="compact" hide-details
+                      label="Relevée automatiquement"></v-switch>
+            <v-switch v-model="sourceForm.allowInvalidCert" color="warning" density="compact"
+                      hide-details
+                      label="Accepter un certificat auto-signé"></v-switch>
+          </v-col>
+
+          <v-col cols="12" v-if="sourceForm.deleteAfterFetch">
+            <v-alert type="warning" variant="tonal" density="compact">
+              En mode déplacement, la boîte source est vidée au fur et à mesure. Les messages
+              n'existeront plus qu'à la destination : assurez-vous qu'elle fonctionne avant.
+            </v-alert>
+          </v-col>
+        </v-row>
+
+        <v-alert v-if="formTest" :type="formTest.ok ? 'success' : 'error'" variant="tonal"
+                 density="compact" class="mt-2">{{ formTest.message }}</v-alert>
+      </v-card-text>
+      <v-card-actions>
+        <v-btn variant="text" prepend-icon="mdi-lan-connect" :loading="testingForm"
+               @click="testSourceForm()">Tester la connexion</v-btn>
+        <v-spacer></v-spacer>
+        <v-btn variant="text" @click="sourceDialog = false">Annuler</v-btn>
+        <v-btn color="primary" variant="flat" :loading="saving" @click="saveSource()">
+          Enregistrer
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <!-- ----------------------------------------------------- Destination -->
+  <v-dialog v-model="targetDialog" max-width="760" scrollable>
+    <v-card>
+      <v-card-title>
+        {{ targetForm.id ? 'Modifier la destination' : 'Nouvelle destination' }}
+      </v-card-title>
+      <v-card-text>
+        <v-btn class="mb-3" size="small" variant="tonal" prepend-icon="mdi-gmail"
+               @click="applyGmailPreset()">Pré-remplir pour Gmail</v-btn>
+
+        <!-- Aide mot de passe d'application : le point qui bloque tout le monde. -->
+        <v-alert v-if="isGmail(targetForm.host)" type="info" variant="tonal" density="compact"
+                 class="mb-3" icon="mdi-key-outline">
+          <div class="font-weight-medium mb-1">Gmail exige un mot de passe d'application</div>
+          <div class="text-body-2">
+            Le mot de passe de votre compte est refusé par le SMTP. Activez la validation en deux
+            étapes, puis générez un mot de passe d'application de 16 caractères et collez-le
+            ci-dessous.
+          </div>
+          <template #append>
+            <v-btn size="small" variant="flat" color="info" append-icon="mdi-open-in-new"
+                   href="https://myaccount.google.com/apppasswords" target="_blank"
+                   rel="noopener">Générer</v-btn>
+          </template>
+        </v-alert>
+
+        <v-row dense>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="targetForm.name" label="Nom" density="comfortable"
+                          placeholder="Mon Gmail"></v-text-field>
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="targetForm.to" label="Déposer les messages sur"
+                          density="comfortable" placeholder="moi@gmail.com"></v-text-field>
+          </v-col>
+          <v-col cols="12" sm="7">
+            <v-text-field v-model="targetForm.host" label="Serveur SMTP" density="comfortable"
+                          placeholder="smtp.gmail.com"></v-text-field>
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-select v-model="smtpSecurity" :items="smtpSecurityItems" item-title="title"
+                      item-value="value" label="Chiffrement" density="comfortable"></v-select>
+          </v-col>
+          <v-col cols="6" sm="2">
+            <v-text-field v-model.number="targetForm.port" label="Port" type="number"
+                          density="comfortable"></v-text-field>
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="targetForm.user" label="Identifiant SMTP" density="comfortable"
+                          autocomplete="off"></v-text-field>
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="targetForm.pass" label="Mot de passe" type="password"
+                          density="comfortable" autocomplete="new-password"
+                          :hint="isGmail(targetForm.host) ? 'Mot de passe d’application, pas celui du compte' : ''"
+                          persistent-hint></v-text-field>
+          </v-col>
+
+          <v-col cols="12">
+            <v-expansion-panels variant="accordion" class="mt-2">
+              <v-expansion-panel title="Réglages avancés">
+                <v-expansion-panel-text>
+                  <v-select v-model="targetForm.headerMode" :items="modeItems" item-title="title"
+                            item-value="value" label="Traitement des en-têtes"
+                            density="comfortable"></v-select>
+                  <div class="text-caption text-medium-emphasis mb-4">{{ modeHelp }}</div>
+
+                  <v-select v-model="targetForm.envelopeFrom" :items="envelopeItems"
+                            item-title="title" item-value="value"
+                            label="Expéditeur d'enveloppe (MAIL FROM)"
+                            density="comfortable"></v-select>
+
+                  <v-text-field v-model="targetForm.from" label="Adresse d'envoi (facultatif)"
+                                density="comfortable"
+                                hint="Vide = l'identifiant SMTP" persistent-hint
+                                class="mb-3"></v-text-field>
+
+                  <v-switch v-model="targetForm.newMessageId" color="primary" density="compact"
+                            hide-details
+                            label="Regénérer le Message-ID (à n'activer que si Gmail masque des doublons)"></v-switch>
+                  <v-switch v-model="targetForm.enabled" color="primary" density="compact"
+                            hide-details label="Destination active"></v-switch>
+                  <v-switch v-model="targetForm.allowInvalidCert" color="warning" density="compact"
+                            hide-details label="Accepter un certificat auto-signé"></v-switch>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
+          </v-col>
+        </v-row>
+
+        <v-alert v-if="formTest" :type="formTest.ok ? 'success' : 'error'" variant="tonal"
+                 density="compact" class="mt-3">{{ formTest.message }}</v-alert>
+      </v-card-text>
+      <v-card-actions>
+        <v-btn variant="text" prepend-icon="mdi-lan-connect" :loading="testingForm"
+               @click="testTargetForm()">Tester la connexion</v-btn>
+        <v-spacer></v-spacer>
+        <v-btn variant="text" @click="targetDialog = false">Annuler</v-btn>
+        <v-btn color="primary" variant="flat" :loading="saving" @click="saveTarget()">
+          Enregistrer
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <!-- -------------------------------------------------------- Réglages -->
+  <v-dialog v-model="settingsDialog" max-width="620">
+    <v-card>
+      <v-card-title>Réglages</v-card-title>
+      <v-card-text>
+        <v-text-field v-model.number="settingsForm.refreshMinutes" type="number"
+                      label="Relever toutes les (minutes)" density="comfortable"
+                      :disabled="isForced('refreshMinutes')" :hint="forcedHint('refreshMinutes')"
+                      persistent-hint
+                      messages="0 désactive la relève automatique"></v-text-field>
+        <v-text-field v-model.number="settingsForm.maxPerRun" type="number" class="mt-3"
+                      label="Messages traités au maximum par passage et par boîte"
+                      density="comfortable" :disabled="isForced('maxPerRun')"
+                      :hint="forcedHint('maxPerRun')" persistent-hint></v-text-field>
+        <v-text-field v-model.number="settingsForm.maxSizeMb" type="number" class="mt-3"
+                      label="Taille maximale d'un message (Mo)" density="comfortable"
+                      :disabled="isForced('maxSizeMb')" :hint="forcedHint('maxSizeMb')"
+                      persistent-hint
+                      messages="0 = aucune limite"></v-text-field>
+        <v-text-field v-model.number="settingsForm.historyMax" type="number" class="mt-3"
+                      label="Actions conservées dans l'historique" density="comfortable"
+                      :disabled="isForced('historyMax')" :hint="forcedHint('historyMax')"
+                      persistent-hint></v-text-field>
+        <v-switch v-model="settingsForm.runOnStart" color="primary" density="compact" class="mt-2"
+                  hide-details :disabled="isForced('runOnStart')"
+                  label="Relever au démarrage du conteneur"></v-switch>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer></v-spacer>
+        <v-btn variant="text" @click="settingsDialog = false">Annuler</v-btn>
+        <v-btn color="primary" variant="flat" :loading="saving" @click="saveSettings()">
+          Enregistrer
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <!-- --------------------------------------------------------- Alertes -->
+  <v-dialog v-model="notifyDialog" max-width="720" scrollable>
+    <v-card>
+      <v-card-title>Alertes</v-card-title>
+      <v-card-text>
+        <div class="text-body-2 text-medium-emphasis mb-3">
+          Prévenir quand une relève échoue — et, si vous le souhaitez, à chaque redirection.
+        </div>
+
+        <v-select v-model="notifyForm.events" :items="eventItems" item-title="title"
+                  item-value="value" label="Quand prévenir" multiple chips
+                  density="comfortable"></v-select>
+
+        <v-divider class="my-4"></v-divider>
+        <div class="text-subtitle-2 mb-2">Par e-mail</div>
+        <v-select v-model="notifyForm.emailTargetId" :items="targetItemsOptional"
+                  item-title="title" item-value="value" label="Envoyer via la destination"
+                  density="comfortable"></v-select>
+        <v-text-field v-model="notifyForm.emailTo" label="Destinataire" density="comfortable"
+                      hint="Vide = l'adresse de la destination choisie" persistent-hint
+                      class="mb-2"></v-text-field>
+
+        <v-divider class="my-4"></v-divider>
+        <div class="text-subtitle-2 mb-2">ntfy</div>
+        <v-row dense>
+          <v-col cols="12" sm="7">
+            <v-text-field v-model="notifyForm.ntfyServer" label="Serveur"
+                          density="comfortable"></v-text-field>
+          </v-col>
+          <v-col cols="12" sm="5">
+            <v-text-field v-model="notifyForm.ntfyTopic" label="Sujet (topic)"
+                          density="comfortable"></v-text-field>
+          </v-col>
+        </v-row>
+
+        <v-divider class="my-4"></v-divider>
+        <div class="text-subtitle-2 mb-2">Webhook</div>
+        <v-text-field v-model="notifyForm.webhookUrl" label="URL" density="comfortable"></v-text-field>
+        <v-row dense>
+          <v-col cols="6" sm="3">
+            <v-text-field v-model="notifyForm.webhookMethod" label="Méthode"
+                          density="comfortable"></v-text-field>
+          </v-col>
+          <v-col cols="6" sm="9">
+            <v-text-field v-model="notifyForm.webhookContentType" label="Content-Type"
+                          density="comfortable"></v-text-field>
+          </v-col>
+        </v-row>
+        <v-textarea v-model="notifyForm.webhookTemplate" label="Corps" rows="2"
+                    density="comfortable" hint="{{title}} et {{text}} sont remplacés"
+                    persistent-hint></v-textarea>
+
+        <v-divider class="my-4"></v-divider>
+        <div class="text-subtitle-2 mb-2">SMS (API Free Mobile)</div>
+        <v-row dense>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="notifyForm.freeMobileUser" label="Identifiant"
+                          density="comfortable" autocomplete="off"></v-text-field>
+          </v-col>
+          <v-col cols="12" sm="6">
+            <v-text-field v-model="notifyForm.freeMobilePass" label="Clé" type="password"
+                          density="comfortable" autocomplete="new-password"></v-text-field>
+          </v-col>
+        </v-row>
+
+        <v-alert v-if="notifyResults.length" variant="tonal" density="compact" class="mt-3"
+                 :type="notifyResults.every(r => r.ok) ? 'success' : 'warning'">
+          <div v-for="r in notifyResults" :key="r.channel">
+            {{ r.channel }} : {{ r.ok ? 'ok' : 'échec' }} — {{ r.message }}
+          </div>
+        </v-alert>
+        <v-alert v-else-if="notifyTested" type="info" variant="tonal" density="compact" class="mt-3">
+          Aucun canal configuré.
+        </v-alert>
+      </v-card-text>
+      <v-card-actions>
+        <v-btn variant="text" prepend-icon="mdi-send-outline" :loading="testingForm"
+               @click="testNotify()">Envoyer un test</v-btn>
+        <v-spacer></v-spacer>
+        <v-btn variant="text" @click="notifyDialog = false">Fermer</v-btn>
+        <v-btn color="primary" variant="flat" :loading="saving" @click="saveNotify()">
+          Enregistrer
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <!-- ------------------------------------------------------ Historique -->
+  <v-dialog v-model="historyDialog" max-width="900" scrollable>
+    <v-card>
+      <v-card-title class="d-flex align-center">
+        <span>10 dernières actions</span>
+        <v-spacer></v-spacer>
+        <v-btn variant="text" size="small" icon="mdi-refresh" @click="loadHistory()"></v-btn>
+      </v-card-title>
+      <v-card-text>
+        <div v-if="!history.length" class="text-medium-emphasis">Aucune relève enregistrée.</div>
+
+        <v-expansion-panels variant="accordion">
+          <v-expansion-panel v-for="h in history" :key="h.id">
+            <v-expansion-panel-title>
+              <div class="d-flex align-center ga-3 flex-wrap" style="width: 100%">
+                <v-icon :icon="statusIcon(h.status)" :color="statusColor(h.status)"></v-icon>
+                <span class="font-weight-medium">{{ h.sourceName }}</span>
+                <span class="text-medium-emphasis">→ {{ h.targetName }}</span>
+                <v-chip size="x-small" variant="tonal">{{ summarize(h) }}</v-chip>
+                <v-spacer></v-spacer>
+                <span class="text-caption text-medium-emphasis">
+                  {{ formatDate(h.at) }} · {{ triggerLabel(h.trigger) }}
+                </span>
+              </div>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <v-alert v-if="h.error" type="error" variant="tonal" density="compact" class="mb-3">
+                {{ h.error }}
+              </v-alert>
+
+              <div class="text-caption text-medium-emphasis mb-2">
+                {{ h.total }} nouveau(x) · {{ h.forwarded }} redirigé(s) · {{ h.skipped }} ignoré(s)
+                · {{ h.deleted }} supprimé(s) · {{ (h.durationMs / 1000).toFixed(1) }} s
+              </div>
+
+              <v-list v-if="h.messages.length" density="compact" class="msg-list" bg-color="transparent">
+                <v-list-item v-for="m in h.messages" :key="m.uid">
+                  <template #prepend>
+                    <v-icon :icon="messageIcon(m.status)" :color="statusColor(messageStatus(m.status))"
+                            size="small"></v-icon>
+                  </template>
+                  <v-list-item-title>{{ m.subject || '(sans objet)' }}</v-list-item-title>
+                  <v-list-item-subtitle>
+                    {{ m.from || 'expéditeur inconnu' }}
+                    <span v-if="m.error" class="text-error"> — {{ m.error }}</span>
+                  </v-list-item-subtitle>
+                </v-list-item>
+              </v-list>
+              <div v-else class="text-caption text-medium-emphasis">Aucun message traité.</div>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer></v-spacer>
+        <v-btn variant="text" @click="historyDialog = false">Fermer</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar v-model="snack.show" :color="snack.color" timeout="6000">
+    {{ snack.text }}
+  </v-snackbar>
+</v-app>
+</div>
+
+<script src="/vendor/vue.js"></script>
+<script src="/vendor/vuetify.js"></script>
+<script>
+const { createApp } = Vue;
+const { createVuetify } = Vuetify;
+
+const MASK = '••••••••';
+
+const emptySource = () => ({
+  id: '', name: '', enabled: true, host: '', port: 995, security: 'tls',
+  user: '', pass: '', targetId: '', deleteAfterFetch: false, allowInvalidCert: false,
+});
+
+const emptyTarget = () => ({
+  id: '', name: '', enabled: true, host: '', port: 587, secure: false,
+  user: '', pass: '', to: '', from: '', headerMode: 'auto', envelopeFrom: 'auto',
+  newMessageId: false, allowInvalidCert: false,
+});
+
+const api = async (method, url, body) => {
+  const res = await fetch(url, {
+    method,
+    headers: body ? { 'content-type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error((data && data.message) || res.statusText);
+  return data;
+};
+
+createApp({
+  data: () => ({
+    status: { running: false, config: { sources: [], targets: [], settings: {}, notify: {} },
+              forced: {}, resolvedModes: {}, lastRun: null, nextRunAt: null },
+    history: [],
+    now: Date.now(),
+
+    sourceDialog: false, targetDialog: false, settingsDialog: false,
+    notifyDialog: false, historyDialog: false,
+
+    sourceForm: emptySource(),
+    targetForm: emptyTarget(),
+    settingsForm: {},
+    notifyForm: {},
+    notifyResults: [],
+    notifyTested: false,
+
+    saving: false,
+    testing: '',
+    testingForm: false,
+    formTest: null,
+    snack: { show: false, text: '', color: 'success' },
+
+    securityItems: [
+      { title: 'TLS (995)', value: 'tls' },
+      { title: 'STARTTLS (110)', value: 'starttls' },
+      { title: 'Aucun (110)', value: 'none' },
+    ],
+    smtpSecurityItems: [
+      { title: 'STARTTLS (587)', value: 'starttls' },
+      { title: 'TLS direct (465)', value: 'tls' },
+    ],
+    modeItems: [
+      { title: 'Automatique', value: 'auto' },
+      { title: 'Redirection fidèle', value: 'redirect' },
+      { title: 'Compatible Gmail', value: 'gmail-safe' },
+    ],
+    envelopeItems: [
+      { title: 'Automatique', value: 'auto' },
+      { title: "Expéditeur d'origine", value: 'original' },
+      { title: 'Compte SMTP', value: 'smtp' },
+    ],
+    eventItems: [
+      { title: 'Échec', value: 'error' },
+      { title: 'Redirection réussie', value: 'forward' },
+      { title: 'Chaque relève', value: 'run' },
+    ],
+  }),
+
+  computed: {
+    sources() { return this.status.config.sources || []; },
+    targets() { return this.status.config.targets || []; },
+    canRun() { return !this.status.running && this.sources.length > 0; },
+
+    targetItems() {
+      return this.targets.map((t) => ({ title: `${t.name} — ${t.to}`, value: t.id }));
+    },
+
+    /**
+     * Le formulaire manipule un libellé plutôt que le booléen `secure` : une
+     * liste déroulante dont une option vaut `false` se comporte mal, et changer
+     * le chiffrement doit ajuster le port au passage.
+     */
+    smtpSecurity: {
+      get() { return this.targetForm.secure ? 'tls' : 'starttls'; },
+      set(value) {
+        this.targetForm.secure = value === 'tls';
+        this.targetForm.port = value === 'tls' ? 465 : 587;
+      },
+    },
+    targetItemsOptional() {
+      return [{ title: '— aucune —', value: '' }, ...this.targetItems];
+    },
+
+    lastRunLabel() {
+      if (this.status.running) return this.status.runningLabel || 'relève en cours';
+      const last = this.status.lastRun;
+      if (!last) return 'jamais relevé';
+      return `${this.summarize(last)} · ${this.ago(last.at)}`;
+    },
+    lastRunColor() {
+      if (this.status.running) return 'warning';
+      const last = this.status.lastRun;
+      if (!last) return 'surface-variant';
+      return this.statusColor(last.status);
+    },
+    lastRunIcon() {
+      if (this.status.running) return 'mdi-progress-clock';
+      const last = this.status.lastRun;
+      return last ? this.statusIcon(last.status) : 'mdi-help-circle-outline';
+    },
+    nextRunLabel() {
+      const next = this.status.nextRunAt;
+      if (!next) return 'automatique désactivé';
+      const delta = Math.round((new Date(next).getTime() - this.now) / 1000);
+      if (delta <= 0) return 'imminent';
+      if (delta < 60) return `dans ${delta} s`;
+      return `dans ${Math.round(delta / 60)} min`;
+    },
+    modeHelp() {
+      const mode = this.targetForm.headerMode === 'auto'
+        ? (this.isGmail(this.targetForm.host) ? 'gmail-safe' : 'redirect')
+        : this.targetForm.headerMode;
+      return mode === 'redirect'
+        ? "Le message repart intact : expéditeur, signature et pièces jointes d'origine. À réserver aux serveurs qui acceptent d'expédier au nom d'un tiers."
+        : "Gmail réécrit de toute façon l'expéditeur : on le fait proprement en affichant « Nom d'origine (via la boîte) » et en plaçant l'expéditeur réel en Répondre-à.";
+    },
+  },
+
+  methods: {
+    // --- Chargement ---------------------------------------------------------
+    async refresh() {
+      try {
+        this.status = await api('GET', '/api/status');
+      } catch (err) {
+        this.toast(err.message, 'error');
+      }
+    },
+    async loadHistory() {
+      this.history = await api('GET', '/api/history?limit=10');
+    },
+    async openHistory() {
+      await this.loadHistory();
+      this.historyDialog = true;
+    },
+
+    // --- Relèves ------------------------------------------------------------
+    async runAll() {
+      this.status.running = true;
+      try {
+        const entries = await api('POST', '/api/run');
+        const total = entries.reduce((n, e) => n + e.forwarded, 0);
+        const failed = entries.filter((e) => e.status !== 'ok').length;
+        this.toast(
+          `${total} message(s) redirigé(s)${failed ? `, ${failed} boîte(s) en échec` : ''}`,
+          failed ? 'warning' : 'success',
+        );
+      } catch (err) {
+        this.toast(err.message, 'error');
+      } finally {
+        await this.refresh();
+      }
+    },
+    async runSource(source) {
+      this.status.running = true;
+      try {
+        const entry = await api('POST', `/api/sources/${source.id}/run`);
+        this.toast(this.summarize(entry), entry.status === 'ok' ? 'success' : 'warning');
+      } catch (err) {
+        this.toast(err.message, 'error');
+      } finally {
+        await this.refresh();
+      }
+    },
+    async markSeen(source) {
+      if (!confirm(`Marquer tout le contenu actuel de « ${source.name} » comme déjà traité ?\n\nCes messages ne seront jamais redirigés.`)) return;
+      try {
+        const res = await api('POST', `/api/sources/${source.id}/seen`);
+        this.toast(res.message, res.ok ? 'success' : 'error');
+      } catch (err) {
+        this.toast(err.message, 'error');
+      }
+    },
+
+    // --- Boîtes -------------------------------------------------------------
+    newSource() {
+      this.sourceForm = { ...emptySource(), targetId: this.targets[0]?.id || '' };
+      this.formTest = null;
+      this.sourceDialog = true;
+    },
+    editSource(source) {
+      this.sourceForm = { ...source };
+      this.formTest = null;
+      this.sourceDialog = true;
+    },
+    syncPop3Port(security) {
+      this.sourceForm.port = security === 'tls' ? 995 : 110;
+    },
+    async saveSource() {
+      this.saving = true;
+      try {
+        const { id } = this.sourceForm;
+        const res = id
+          ? await api('PUT', `/api/sources/${id}`, this.sourceForm)
+          : await api('POST', '/api/sources', this.sourceForm);
+        this.sourceDialog = false;
+        await this.refresh();
+        // La vérification est faite à l'enregistrement : inutile de penser à
+        // cliquer « Tester » pour découvrir qu'un mot de passe est faux.
+        this.toast(
+          res.test.ok ? `Enregistré — ${res.test.message}` : `Enregistré, mais : ${res.test.message}`,
+          res.test.ok ? 'success' : 'warning',
+        );
+      } catch (err) {
+        this.toast(err.message, 'error');
+      } finally {
+        this.saving = false;
+      }
+    },
+    async removeSource(source) {
+      if (!confirm(`Supprimer « ${source.name} » ?`)) return;
+      await api('DELETE', `/api/sources/${source.id}`);
+      await this.refresh();
+      this.toast('Boîte supprimée');
+    },
+    async testSource(source) {
+      this.testing = source.id;
+      try {
+        const res = await api('POST', '/api/sources/test', source);
+        this.toast(res.message, res.ok ? 'success' : 'error');
+      } catch (err) {
+        this.toast(err.message, 'error');
+      } finally {
+        this.testing = '';
+      }
+    },
+    async testSourceForm() {
+      this.testingForm = true;
+      this.formTest = null;
+      try {
+        this.formTest = await api('POST', '/api/sources/test', this.sourceForm);
+      } catch (err) {
+        this.formTest = { ok: false, message: err.message };
+      } finally {
+        this.testingForm = false;
+      }
+    },
+
+    // --- Destinations -------------------------------------------------------
+    newTarget() {
+      this.targetForm = emptyTarget();
+      this.formTest = null;
+      this.targetDialog = true;
+    },
+    editTarget(target) {
+      this.targetForm = { ...target };
+      this.formTest = null;
+      this.targetDialog = true;
+    },
+    applyGmailPreset() {
+      Object.assign(this.targetForm, {
+        name: this.targetForm.name || 'Gmail',
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+      });
+    },
+    async saveTarget() {
+      this.saving = true;
+      try {
+        const { id } = this.targetForm;
+        const res = id
+          ? await api('PUT', `/api/targets/${id}`, this.targetForm)
+          : await api('POST', '/api/targets', this.targetForm);
+        this.targetDialog = false;
+        await this.refresh();
+        this.toast(
+          res.test.ok ? `Enregistré — ${res.test.message}` : `Enregistré, mais : ${res.test.message}`,
+          res.test.ok ? 'success' : 'warning',
+        );
+      } catch (err) {
+        this.toast(err.message, 'error');
+      } finally {
+        this.saving = false;
+      }
+    },
+    async removeTarget(target) {
+      if (!confirm(`Supprimer « ${target.name} » ?`)) return;
+      try {
+        await api('DELETE', `/api/targets/${target.id}`);
+        await this.refresh();
+        this.toast('Destination supprimée');
+      } catch (err) {
+        this.toast(err.message, 'error');
+      }
+    },
+    async testTarget(target) {
+      this.testing = target.id;
+      try {
+        const res = await api('POST', '/api/targets/test', target);
+        this.toast(res.message, res.ok ? 'success' : 'error');
+      } catch (err) {
+        this.toast(err.message, 'error');
+      } finally {
+        this.testing = '';
+      }
+    },
+    async testTargetForm() {
+      this.testingForm = true;
+      this.formTest = null;
+      try {
+        this.formTest = await api('POST', '/api/targets/test', this.targetForm);
+      } catch (err) {
+        this.formTest = { ok: false, message: err.message };
+      } finally {
+        this.testingForm = false;
+      }
+    },
+
+    // --- Réglages et alertes ------------------------------------------------
+    openSettings() {
+      this.settingsForm = { ...this.status.config.settings };
+      this.settingsDialog = true;
+    },
+    async saveSettings() {
+      this.saving = true;
+      try {
+        await api('PUT', '/api/settings', this.settingsForm);
+        this.settingsDialog = false;
+        await this.refresh();
+        this.toast('Réglages enregistrés');
+      } catch (err) {
+        this.toast(err.message, 'error');
+      } finally {
+        this.saving = false;
+      }
+    },
+    openNotify() {
+      this.notifyForm = { ...this.status.config.notify };
+      this.notifyResults = [];
+      this.notifyTested = false;
+      this.notifyDialog = true;
+    },
+    async saveNotify() {
+      this.saving = true;
+      try {
+        await api('PUT', '/api/notify', this.notifyForm);
+        await this.refresh();
+        this.toast('Alertes enregistrées');
+      } catch (err) {
+        this.toast(err.message, 'error');
+      } finally {
+        this.saving = false;
+      }
+    },
+    async testNotify() {
+      this.testingForm = true;
+      try {
+        // On enregistre d'abord : tester ce qui est à l'écran plutôt que ce qui
+        // était enregistré évite les faux négatifs.
+        await api('PUT', '/api/notify', this.notifyForm);
+        this.notifyResults = await api('POST', '/api/notify/test');
+        this.notifyTested = true;
+      } catch (err) {
+        this.toast(err.message, 'error');
+      } finally {
+        this.testingForm = false;
+      }
+    },
+    isForced(key) { return Boolean(this.status.forced[key]); },
+    forcedHint(key) {
+      return this.isForced(key) ? `imposé par ${this.status.forced[key]} dans le .env` : '';
+    },
+
+    // --- Affichage ----------------------------------------------------------
+    targetName(id) {
+      const target = this.targets.find((t) => t.id === id);
+      return target ? target.name : 'destination manquante';
+    },
+    modeOf(target) { return this.status.resolvedModes[target.id] || 'redirect'; },
+    modeLabel(mode) { return mode === 'redirect' ? 'redirection fidèle' : 'compatible Gmail'; },
+    isGmail(host) { return /(^|\.)(gmail|googlemail)\.com$/i.test((host || '').trim()); },
+    securityLabel(s) { return s === 'tls' ? 'TLS' : s === 'starttls' ? 'STARTTLS' : 'non chiffré'; },
+    securityIcon(s) { return s === 'none' ? 'mdi-lock-open-variant-outline' : 'mdi-lock-outline'; },
+
+    lastFor(sourceId) {
+      const last = this.status.lastRun;
+      return last && last.sourceId === sourceId ? last : null;
+    },
+    summarize(entry) {
+      if (entry.status === 'error' && !entry.forwarded) return 'échec';
+      const bits = [`${entry.forwarded} redirigé(s)`];
+      if (entry.skipped) bits.push(`${entry.skipped} ignoré(s)`);
+      if (entry.status === 'partial') bits.push('erreurs');
+      return bits.join(', ');
+    },
+    statusColor(status) {
+      return status === 'ok' ? 'success' : status === 'partial' ? 'warning' : 'error';
+    },
+    statusIcon(status) {
+      return status === 'ok'
+        ? 'mdi-check-circle-outline'
+        : status === 'partial'
+          ? 'mdi-alert-outline'
+          : 'mdi-close-circle-outline';
+    },
+    alertType(status) {
+      return status === 'ok' ? 'success' : status === 'partial' ? 'warning' : 'error';
+    },
+    messageStatus(status) {
+      return status === 'forwarded' ? 'ok' : status === 'skipped' ? 'partial' : 'error';
+    },
+    messageIcon(status) {
+      return status === 'forwarded'
+        ? 'mdi-email-check-outline'
+        : status === 'skipped'
+          ? 'mdi-email-off-outline'
+          : 'mdi-email-alert-outline';
+    },
+    triggerLabel(trigger) {
+      return trigger === 'manual' ? 'manuel' : trigger === 'startup' ? 'démarrage' : 'planifié';
+    },
+    formatDate(iso) { return new Date(iso).toLocaleString('fr-FR'); },
+    ago(iso) {
+      const seconds = Math.max(0, Math.round((this.now - new Date(iso).getTime()) / 1000));
+      if (seconds < 60) return "à l'instant";
+      if (seconds < 3600) return `il y a ${Math.round(seconds / 60)} min`;
+      if (seconds < 86400) return `il y a ${Math.round(seconds / 3600)} h`;
+      return `il y a ${Math.round(seconds / 86400)} j`;
+    },
+    toast(text, color = 'success') {
+      this.snack = { show: true, text, color };
+    },
+  },
+
+  async mounted() {
+    await this.refresh();
+    // Un rafraîchissement discret : l'écran reste juste sans recharger la page.
+    setInterval(() => { this.now = Date.now(); }, 1000);
+    setInterval(() => { if (!this.saving) this.refresh(); }, 15000);
+  },
+}).use(createVuetify({ theme: { defaultTheme: 'dark' } })).mount('#app');
+</script>
+</body>
+</html>

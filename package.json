@@ -1,0 +1,36 @@
+{
+  "name": "pop3-to-smtp",
+  "version": "1.0.0",
+  "description": "Relève des boîtes POP3 et redirige les messages vers Gmail (ou n'importe quel SMTP), en gardant l'expéditeur d'origine",
+  "license": "MIT",
+  "author": "Damien Duboeuf <smeagolworms4@gmail.com>",
+  "main": "dist/main.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsc -p tsconfig.json && node dist/main.js",
+    "test": "tsc -p tsconfig.json && node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@mdi/font": "^7.4.47",
+    "@nestjs/common": "^11.1.28",
+    "@nestjs/core": "^11.1.28",
+    "@nestjs/platform-express": "^11.1.28",
+    "dotenv": "^16.4.7",
+    "nodemailer": "^9.0.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "vue": "^3.5.40",
+    "vuetify": "^3.13.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.1",
+    "@types/nodemailer": "^8.0.1",
+    "smtp-server": "^3.19.2",
+    "typescript": "^5.9.3"
+  }
+}
