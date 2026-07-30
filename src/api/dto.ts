@@ -31,6 +31,18 @@ const int = (v: unknown, def: number, min: number, max: number): number => {
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[], def: T): T =>
   allowed.includes(v as T) ? (v as T) : def;
 
+/**
+ * Réglage propre à une boîte, qui peut aussi « suivre le réglage global ».
+ * `null` ou chaîne vide expriment cet héritage ; absent = on ne touche à rien.
+ */
+const inherited = (v: unknown, previous: number | null, min: number, max: number): number | null => {
+  if (v === undefined) return previous;
+  if (v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return previous;
+  return Math.min(max, Math.max(min, Math.round(n)));
+};
+
 /** Garde le secret déjà enregistré quand l'interface renvoie le masque. */
 const secret = (v: unknown, previous: string): string => {
   if (typeof v !== 'string') return previous;
@@ -74,6 +86,8 @@ export function normalizeSource(input: Raw, previous?: Source): Source {
     user: str(input.user, previous?.user ?? ''),
     pass: secret(input.pass, previous?.pass ?? ''),
     targetId: str(input.targetId, previous?.targetId ?? ''),
+    refreshMinutes: inherited(input.refreshMinutes, previous?.refreshMinutes ?? null, 0, 10_080),
+    maxPerRun: inherited(input.maxPerRun, previous?.maxPerRun ?? null, 0, 100_000),
     deleteAfterFetch: bool(input.deleteAfterFetch, previous?.deleteAfterFetch ?? false),
     allowInvalidCert: bool(input.allowInvalidCert, previous?.allowInvalidCert ?? false),
   };
@@ -83,7 +97,8 @@ export function normalizeSettings(input: Raw, previous: Settings): Settings {
   return {
     refreshMinutes: int(input.refreshMinutes, previous.refreshMinutes, 0, 10_080),
     runOnStart: bool(input.runOnStart, previous.runOnStart),
-    maxPerRun: int(input.maxPerRun, previous.maxPerRun, 1, 10_000),
+    // 0 = pas de plafond : on traite tout ce que la boîte contient.
+    maxPerRun: int(input.maxPerRun, previous.maxPerRun, 0, 100_000),
     maxSizeMb: int(input.maxSizeMb, previous.maxSizeMb, 0, 200),
     historyMax: int(input.historyMax, previous.historyMax, 10, 5_000),
   };

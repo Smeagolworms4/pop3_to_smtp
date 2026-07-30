@@ -48,6 +48,8 @@ export class ApiController {
       running: this.forwarder.isRunning,
       runningLabel: this.forwarder.runningLabel,
       nextRunAt: this.scheduler.nextRunAt,
+      // Prochaine relève de chaque boîte : chacune a son propre rythme.
+      nextRuns: this.scheduler.nextRuns,
       lastRun: this.store.getState().lastRun,
       config: maskConfig(config),
       // Réglages imposés par le .env : l'interface les affiche verrouillés.
@@ -206,7 +208,7 @@ export class ApiController {
   @Post('sources/:id/run')
   async runSource(@Param('id') id: string) {
     const entry = await this.forwarder.runSource(id, 'manual');
-    this.scheduler.reschedule();
+    this.scheduler.reschedule(id);
     return entry;
   }
 

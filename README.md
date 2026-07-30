@@ -25,6 +25,8 @@ configured entirely from a web interface.
   redirection](#making-it-look-like-a-real-redirection)*).
 - **Copy or move**: leave the messages on the POP3 server, or delete them once they
   have been delivered.
+- **Per-mailbox settings**: each mailbox has its own collection interval and its own
+  per-pass cap, or simply follows the global ones.
 - **Web interface** (port 8080, Vue 3 + Vuetify): add mailboxes and destinations,
   force a refresh, see the state of the last action, and click it to browse the last
   10 actions — message by message, errors included.
@@ -173,7 +175,7 @@ the interface. The `.env` file only holds what is specific to the deployment:
 | `WEB_USER` / `WEB_PASSWORD` | empty | Basic auth on the interface **and** the API |
 | `REFRESH_MINUTES` | `10` | Delay between two collections. `0` disables the timer |
 | `RUN_ON_START` | `true` | Collect once when the container starts |
-| `MAX_PER_RUN` | `50` | Messages handled per mailbox per pass |
+| `MAX_PER_RUN` | `50` | Messages handled per mailbox per pass. `0` = no cap |
 | `MAX_SIZE_MB` | `25` | Messages above this are skipped. `0` = no limit |
 | `HISTORY_MAX` | `200` | Actions kept in the history |
 | `POP3_TIMEOUT` / `SMTP_TIMEOUT` | `60000` | Network timeouts, in milliseconds |
@@ -249,7 +251,7 @@ changes its URLs.
 npm test
 ```
 
-43 tests, no network access needed: a fake POP3 server and a real SMTP server
+45 tests, no network access needed: a fake POP3 server and a real SMTP server
 (`smtp-server`) are started on the fly. They cover byte-for-byte preservation of an
 8-bit message, dot-stuffing, folded headers, RFC 2047 decoding, both header modes,
 absence of duplicates across two collections, move mode, an SMTP rejection leaving the

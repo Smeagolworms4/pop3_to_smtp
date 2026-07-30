@@ -106,6 +106,13 @@
                 <v-chip size="small" variant="tonal" :prepend-icon="securityIcon(s.security)">
                   {{ securityLabel(s.security) }}
                 </v-chip>
+                <v-chip size="small" variant="tonal" prepend-icon="mdi-timer-outline">
+                  {{ frequencyLabel(s) }}
+                </v-chip>
+                <v-chip v-if="nextRunFor(s)" size="small" variant="text"
+                        prepend-icon="mdi-clock-outline">
+                  {{ nextRunFor(s) }}
+                </v-chip>
               </div>
 
               <!-- Dernier résultat connu pour cette boîte. -->
@@ -224,6 +231,25 @@
           <v-col cols="12" sm="6">
             <v-text-field v-model="sourceForm.pass" label="Mot de passe" type="password"
                           density="comfortable" autocomplete="new-password"></v-text-field>
+          </v-col>
+
+          <!-- Rythme propre à cette boîte : une facture mensuelle et une boîte
+               de support n'ont pas besoin du même. -->
+          <v-col cols="12" sm="6">
+            <v-select v-model="sourceRefreshMode" :items="refreshModeItems" item-title="title"
+                      item-value="value" label="Fréquence de relève"
+                      density="comfortable"></v-select>
+          </v-col>
+          <v-col cols="6" sm="3" v-if="sourceRefreshMode === 'custom'">
+            <v-text-field v-model.number="sourceForm.refreshMinutes" type="number"
+                          label="Toutes les (min)" density="comfortable"></v-text-field>
+          </v-col>
+          <v-col cols="6" :sm="sourceRefreshMode === 'custom' ? 3 : 6">
+            <v-text-field v-model="sourceMaxPerRun" type="number"
+                          label="Messages max par passage" density="comfortable"
+                          placeholder="réglage global"
+                          hint="vide = réglage global · 0 = illimité"
+                          persistent-hint></v-text-field>
           </v-col>
 
           <v-col cols="12">
@@ -380,7 +406,8 @@
         <v-text-field v-model.number="settingsForm.maxPerRun" type="number" class="mt-3"
                       label="Messages traités au maximum par passage et par boîte"
                       density="comfortable" :disabled="isForced('maxPerRun')"
-                      :hint="forcedHint('maxPerRun')" persistent-hint></v-text-field>
+                      :hint="forcedHint('maxPerRun')" persistent-hint
+                      messages="0 = pas de plafond"></v-text-field>
         <v-text-field v-model.number="settingsForm.maxSizeMb" type="number" class="mt-3"
                       label="Taille maximale d'un message (Mo)" density="comfortable"
                       :disabled="isForced('maxSizeMb')" :hint="forcedHint('maxSizeMb')"
@@ -567,7 +594,8 @@ const MASK = '••••••••';
 
 const emptySource = () => ({
   id: '', name: '', enabled: true, host: '', port: 995, security: 'tls',
-  user: '', pass: '', targetId: '', deleteAfterFetch: false, allowInvalidCert: false,
+  user: '', pass: '', targetId: '', refreshMinutes: null, maxPerRun: null,
+  deleteAfterFetch: false, allowInvalidCert: false,
 });
 
 const emptyTarget = () => ({
@@ -620,6 +648,11 @@ createApp({
       { title: 'STARTTLS (587)', value: 'starttls' },
       { title: 'TLS direct (465)', value: 'tls' },
     ],
+    refreshModeItems: [
+      { title: 'Réglage global', value: 'global' },
+      { title: 'Personnalisée', value: 'custom' },
+      { title: 'Manuelle uniquement', value: 'off' },
+    ],
     modeItems: [
       { title: 'Automatique', value: 'auto' },
       { title: 'Redirection fidèle', value: 'redirect' },
@@ -644,6 +677,32 @@ createApp({
 
     targetItems() {
       return this.targets.map((t) => ({ title: `${t.name} — ${t.to}`, value: t.id }));
+    },
+
+    /**
+     * Fréquence à trois états — suivre le global, valeur propre, ou jamais —
+     * ramenée à un seul champ : `null`, un nombre, ou zéro.
+     */
+    sourceRefreshMode: {
+      get() {
+        if (this.sourceForm.refreshMinutes === null) return 'global';
+        return this.sourceForm.refreshMinutes === 0 ? 'off' : 'custom';
+      },
+      set(value) {
+        if (value === 'global') this.sourceForm.refreshMinutes = null;
+        else if (value === 'off') this.sourceForm.refreshMinutes = 0;
+        else this.sourceForm.refreshMinutes = this.status.config.settings.refreshMinutes || 10;
+      },
+    },
+
+    /** Champ vide = on suit le réglage global. */
+    sourceMaxPerRun: {
+      get() {
+        return this.sourceForm.maxPerRun === null ? '' : String(this.sourceForm.maxPerRun);
+      },
+      set(value) {
+        this.sourceForm.maxPerRun = value === '' || value === null ? null : Number(value);
+      },
     },
 
     /**
@@ -953,6 +1012,21 @@ createApp({
     securityLabel(s) { return s === 'tls' ? 'TLS' : s === 'starttls' ? 'STARTTLS' : 'non chiffré'; },
     securityIcon(s) { return s === 'none' ? 'mdi-lock-open-variant-outline' : 'mdi-lock-outline'; },
 
+    frequencyLabel(source) {
+      const minutes = source.refreshMinutes ?? this.status.config.settings.refreshMinutes;
+      if (!minutes) return 'manuelle';
+      const own = source.refreshMinutes !== null ? '' : ' (global)';
+      return minutes >= 60
+        ? `${Math.round(minutes / 60)} h${own}`
+        : `${minutes} min${own}`;
+    },
+    nextRunFor(source) {
+      const at = (this.status.nextRuns || {})[source.id];
+      if (!at) return '';
+      const delta = Math.round((new Date(at).getTime() - this.now) / 1000);
+      if (delta <= 0) return 'imminent';
+      return delta < 60 ? `dans ${delta} s` : `dans ${Math.round(delta / 60)} min`;
+    },
     lastFor(sourceId) {
       const last = this.status.lastRun;
       return last && last.sourceId === sourceId ? last : null;

@@ -123,7 +123,11 @@ export class ForwarderService {
       const fresh = inbox.filter((m) => !seen.has(m.uid));
       entry.total = fresh.length;
 
-      const batch = fresh.slice(0, Math.max(1, settings.maxPerRun));
+      // Plafond propre à la boîte, sinon celui du réglage global. `0` = tout
+      // traiter : si quelque chose casse en route, l'alerte le dira et les
+      // messages non traités repasseront au tour suivant.
+      const maxPerRun = source.maxPerRun ?? settings.maxPerRun;
+      const batch = maxPerRun > 0 ? fresh.slice(0, maxPerRun) : fresh;
       if (batch.length < fresh.length) {
         log.info(
           `${entry.sourceName} : ${fresh.length} nouveaux, ${batch.length} traités ce passage`,

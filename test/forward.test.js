@@ -285,3 +285,51 @@ test('la configuration et l’état survivent à un redémarrage', async (t) => 
   assert.equal(reloaded.seenUids('s1').has('uid-1'), true);
   assert.equal(reloaded.getState().lastRun.forwarded, 1);
 });
+
+test('le plafond par boîte l’emporte sur le réglage global', async (t) => {
+  const messages = Array.from({ length: 5 }, (_, i) =>
+    Buffer.from(`From: a@b.fr\r\nSubject: n${i}\r\nMessage-ID: <n${i}@x>\r\n\r\ncorps\r\n`, 'latin1'),
+  );
+  const pop3 = await startFakePop3({ messages });
+  const sink = await startSink();
+  t.after(async () => {
+    await pop3.close();
+    await sink.close();
+  });
+
+  const { store, forwarder } = await buildStack(pop3.port, sink.port, {
+    source: { maxPerRun: 2 },
+  });
+  await store.updateConfig((config) => {
+    config.settings.maxPerRun = 50;
+  });
+
+  const first = await forwarder.runSource('s1', 'manual');
+  assert.equal(first.total, 5, 'les 5 sont vus…');
+  assert.equal(first.forwarded, 2, '…mais seuls 2 partent ce passage');
+
+  // Le reste attend le passage suivant, il n'est pas perdu.
+  const second = await forwarder.runSource('s1', 'manual');
+  assert.equal(second.forwarded, 2);
+  assert.equal(sink.received.length, 4);
+});
+
+test('un plafond à zéro traite toute la boîte d’un coup', async (t) => {
+  const messages = Array.from({ length: 12 }, (_, i) =>
+    Buffer.from(`From: a@b.fr\r\nSubject: n${i}\r\nMessage-ID: <z${i}@x>\r\n\r\ncorps\r\n`, 'latin1'),
+  );
+  const pop3 = await startFakePop3({ messages });
+  const sink = await startSink();
+  t.after(async () => {
+    await pop3.close();
+    await sink.close();
+  });
+
+  const { forwarder } = await buildStack(pop3.port, sink.port, {
+    source: { maxPerRun: 0 },
+  });
+  const entry = await forwarder.runSource('s1', 'manual');
+
+  assert.equal(entry.forwarded, 12);
+  assert.equal(sink.received.length, 12);
+});

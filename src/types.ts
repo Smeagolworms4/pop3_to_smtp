@@ -61,6 +61,16 @@ export interface Source {
   pass: string;
   /** Destination vers laquelle renvoyer ce que contient cette boîte. */
   targetId: string;
+  /**
+   * Délai de relève propre à cette boîte, en minutes.
+   * `null` = suit le réglage global, `0` = jamais (relève manuelle uniquement).
+   */
+  refreshMinutes: number | null;
+  /**
+   * Plafond de messages par passage propre à cette boîte.
+   * `null` = suit le réglage global, `0` = pas de plafond.
+   */
+  maxPerRun: number | null;
   /** true = déplacement (DELE après envoi). false = copie (on laisse sur le serveur). */
   deleteAfterFetch: boolean;
   /** Ne pas vérifier le certificat du serveur (auto-signé). */
@@ -93,7 +103,7 @@ export interface Settings {
   refreshMinutes: number;
   /** Relever une première fois au démarrage du conteneur. */
   runOnStart: boolean;
-  /** Nombre maximum de messages traités par boîte et par passage. */
+  /** Plafond de messages par boîte et par passage. `0` = pas de plafond. */
   maxPerRun: number;
   /** Messages plus gros que ça : ignorés (Mo). */
   maxSizeMb: number;

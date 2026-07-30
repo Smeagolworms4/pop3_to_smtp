@@ -25,6 +25,8 @@ depuis une interface web.
   *[Ressembler à une vraie redirection](#ressembler-à-une-vraie-redirection)*).
 - **Copie ou déplacement** : les messages restent sur le serveur POP3, ou sont supprimés
   une fois remis.
+- **Réglages par boîte** : chacune a son propre délai de relève et son propre plafond
+  par passage, ou suit simplement les réglages globaux.
 - **Interface web** (port 8080, Vue 3 + Vuetify) : ajout des boîtes et des destinations,
   relève forcée, état de la dernière action — et un clic dessus ouvre les 10 dernières
   actions, message par message, erreurs comprises.
@@ -177,7 +179,7 @@ modifient depuis l'interface. Le `.env` ne porte que ce qui relève du déploiem
 | `WEB_USER` / `WEB_PASSWORD` | vide | Authentification de l'interface **et** de l'API |
 | `REFRESH_MINUTES` | `10` | Délai entre deux relèves. `0` désactive le minuteur |
 | `RUN_ON_START` | `true` | Relever une fois au démarrage du conteneur |
-| `MAX_PER_RUN` | `50` | Messages traités par boîte et par passage |
+| `MAX_PER_RUN` | `50` | Messages traités par boîte et par passage. `0` = pas de plafond |
 | `MAX_SIZE_MB` | `25` | Au-delà, le message est ignoré. `0` = pas de limite |
 | `HISTORY_MAX` | `200` | Actions gardées dans l'historique |
 | `POP3_TIMEOUT` / `SMTP_TIMEOUT` | `60000` | Délais réseau, en millisecondes |
@@ -253,7 +255,7 @@ CDN change ses URL.
 npm test
 ```
 
-43 tests, sans accès réseau : un faux serveur POP3 et un vrai serveur SMTP
+45 tests, sans accès réseau : un faux serveur POP3 et un vrai serveur SMTP
 (`smtp-server`) sont démarrés à la volée. Ils couvrent la préservation octet pour octet
 d'un message 8 bits, le dot-stuffing, les en-têtes repliés, le décodage RFC 2047, les
 deux modes d'en-têtes, l'absence de doublon entre deux relèves, le mode déplacement, un
