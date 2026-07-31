@@ -75,7 +75,7 @@ export function rewriteMessage(raw: Buffer, source: Source, target: Target): Rew
   const date = getHeader(head, 'Date', eol) ?? '';
 
   const mode = resolveHeaderMode(target);
-  const smtpIdentity = (target.from || target.user).trim();
+  const smtpIdentity = senderIdentity(target);
   const destination = target.to.trim();
   const sourceLabel = source.user || source.name || source.host;
 
@@ -136,6 +136,22 @@ export function rewriteMessage(raw: Buffer, source: Source, target: Target): Rew
       date,
     },
   };
+}
+
+/**
+ * Adresse sous laquelle le relais s'exprime.
+ *
+ * On prend le premier candidat qui ressemble vraiment à une adresse. C'est
+ * indispensable parce que beaucoup de serveurs — Gmail le premier — acceptent
+ * de s'authentifier avec un identifiant nu (`jean` plutôt que
+ * `jean@gmail.com`) : le reprendre tel quel fabriquerait un `From:` et un
+ * MAIL FROM syntaxiquement invalides, que le serveur d'en face rejetterait.
+ * L'adresse de dépôt sert de dernier recours : sur un compte personnel, c'est
+ * presque toujours la même boîte.
+ */
+function senderIdentity(target: Target): string {
+  const candidates = [target.from, target.user, target.to].map((v) => (v ?? '').trim());
+  return candidates.find((v) => v.includes('@')) ?? '';
 }
 
 /**

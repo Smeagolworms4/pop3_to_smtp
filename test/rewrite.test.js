@@ -130,3 +130,24 @@ test('les informations d’historique sont décodées pour l’affichage', () =>
   assert.equal(info.subject, 'Réunion');
   assert.equal(info.date, 'Wed, 30 Jul 2026 09:15:00 +0200');
 });
+
+test('un identifiant SMTP sans domaine ne produit pas d’adresse invalide', () => {
+  // Gmail accepte de s'authentifier avec « jean » plutôt que « jean@gmail.com ».
+  // Repris tel quel, ça donnerait <jean> : un From et un MAIL FROM que le
+  // serveur d'en face rejette.
+  const t = target({ headerMode: 'gmail-safe', user: 'smeagolworms4', from: '', to: 'moi@gmail.com' });
+  const out = rewriteMessage(RAW, source, t);
+  const from = getHeader(splitMessage(out.message).head, 'From');
+
+  assert.match(from, /<moi@gmail\.com>$/, 'le From doit retomber sur une vraie adresse');
+  assert.match(out.envelopeFrom, /@/, "l'enveloppe ne doit jamais partir sans domaine");
+  assert.equal(out.envelopeFrom, 'moi@gmail.com');
+});
+
+test('l’adresse d’envoi explicite reste prioritaire', () => {
+  const t = target({ headerMode: 'gmail-safe', user: 'compte-nu', from: 'relais@exemple.net' });
+  const out = rewriteMessage(RAW, source, t);
+
+  assert.match(getHeader(splitMessage(out.message).head, 'From'), /<relais@exemple\.net>$/);
+  assert.equal(out.envelopeFrom, 'relais@exemple.net');
+});
