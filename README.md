@@ -3,7 +3,7 @@
 [!["Buy Me A Coffee"](https://raw.githubusercontent.com/Smeagolworms4/donate-assets/master/coffee.png)](https://www.buymeacoffee.com/smeagolworms4)
 [!["Buy Me A Coffee"](https://raw.githubusercontent.com/Smeagolworms4/donate-assets/master/paypal.png)](https://www.paypal.com/donate/?business=SURRPGEXF4YVU&no_recurring=0&item_name=Hello%2C+I%27m+SmeagolWorms4.+For+my+open+source+projects.%0AThanks+you+very+mutch+%21%21%21&currency_code=EUR)
 
-*Read this in [French](README.fr.md).*
+*Read this in [French](https://github.com/Smeagolworms4/pop3_to_smtp/blob/main/README.fr.md).*
 
 Collects your POP3 mailboxes and **forwards** everything to Gmail — or to any other
 SMTP server. A replacement for Gmail's "Check mail from other accounts" feature, which
