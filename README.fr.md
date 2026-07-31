@@ -28,8 +28,8 @@ depuis une interface web.
 - **Réglages par boîte** : chacune a son propre délai de relève et son propre plafond
   par passage, ou suit simplement les réglages globaux.
 - **Interface web** (port 8080, Vue 3 + Vuetify) : ajout des boîtes et des destinations,
-  relève forcée, état de la dernière action — et un clic dessus ouvre les 10 dernières
-  actions, message par message, erreurs comprises.
+  relève forcée, état de la dernière action **de chaque boîte** — et un clic ouvre son
+  historique propre, message par message, erreurs comprises.
 - **Chaque configuration est vérifiée à l'enregistrement**, et un bouton *Tester* permet
   de relancer la vérification quand on veut.
 - **Alertes en cas d'échec** par e-mail, ntfy, webhook générique ou SMS (API Free Mobile).
@@ -181,7 +181,7 @@ modifient depuis l'interface. Le `.env` ne porte que ce qui relève du déploiem
 | `RUN_ON_START` | `true` | Relever une fois au démarrage du conteneur |
 | `MAX_PER_RUN` | `50` | Messages traités par boîte et par passage. `0` = pas de plafond |
 | `MAX_SIZE_MB` | `25` | Au-delà, le message est ignoré. `0` = pas de limite |
-| `HISTORY_MAX` | `200` | Actions gardées dans l'historique |
+| `HISTORY_MAX` | `200` | Actions gardées **par boîte** dans l'historique (10 minimum) |
 | `POP3_TIMEOUT` / `SMTP_TIMEOUT` | `60000` | Délais réseau, en millisecondes |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` ou `error` |
 
@@ -255,7 +255,7 @@ CDN change ses URL.
 npm test
 ```
 
-45 tests, sans accès réseau : un faux serveur POP3 et un vrai serveur SMTP
+47 tests, sans accès réseau : un faux serveur POP3 et un vrai serveur SMTP
 (`smtp-server`) sont démarrés à la volée. Ils couvrent la préservation octet pour octet
 d'un message 8 bits, le dot-stuffing, les en-têtes repliés, le décodage RFC 2047, les
 deux modes d'en-têtes, l'absence de doublon entre deux relèves, le mode déplacement, un

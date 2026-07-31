@@ -333,3 +333,56 @@ test('un plafond à zéro traite toute la boîte d’un coup', async (t) => {
   assert.equal(entry.forwarded, 12);
   assert.equal(sink.received.length, 12);
 });
+
+test('chaque boîte garde son propre historique et sa propre dernière action', async (t) => {
+  const pop3a = await startFakePop3({ messages: [MESSAGE_1] });
+  const pop3b = await startFakePop3({ messages: [MESSAGE_2] });
+  const sink = await startSink();
+  t.after(async () => {
+    await pop3a.close();
+    await pop3b.close();
+    await sink.close();
+  });
+
+  const { store, forwarder } = await buildStack(pop3a.port, sink.port);
+  await store.updateConfig((config) => {
+    config.sources.push({ ...config.sources[0], id: 's2', name: 'Seconde boîte', port: pop3b.port });
+  });
+
+  await forwarder.runSource('s1', 'manual');
+  await forwarder.runSource('s2', 'manual');
+
+  // s1 a été relevée en premier : sans historique par boîte, sa carte
+  // afficherait « jamais relevée » parce que s2 est passée derrière.
+  const last = store.lastRuns();
+  assert.equal(last.s1.forwarded, 1, 's1 doit garder sa dernière action');
+  assert.equal(last.s2.forwarded, 1, 's2 aussi');
+  assert.notEqual(last.s1.id, last.s2.id);
+
+  assert.equal(store.history(10, 's1').every((h) => h.sourceId === 's1'), true);
+  assert.equal(store.history(10, 's1').length, 1);
+  assert.equal(store.history(10).length, 2, 'l’historique global les voit toutes');
+});
+
+test('une boîte bavarde n’efface pas l’historique d’une boîte discrète', async (t) => {
+  const pop3 = await startFakePop3({ messages: [] });
+  const sink = await startSink();
+  t.after(async () => {
+    await pop3.close();
+    await sink.close();
+  });
+
+  const { store, forwarder } = await buildStack(pop3.port, sink.port);
+  await store.updateConfig((config) => {
+    config.settings.historyMax = 10;
+    config.sources.push({ ...config.sources[0], id: 's2', name: 'Boîte discrète' });
+  });
+
+  await forwarder.runSource('s2', 'manual');
+  // s1 est relevée 30 fois de suite : bien au-delà du plafond d'historique.
+  for (let i = 0; i < 30; i++) await forwarder.runSource('s1', 'manual');
+
+  assert.equal(store.history(50, 's1').length, 10, 's1 est plafonnée à 10');
+  assert.equal(store.history(50, 's2').length, 1, 's2 est toujours là');
+  assert.ok(store.lastRuns().s2, 's2 garde sa dernière action');
+});

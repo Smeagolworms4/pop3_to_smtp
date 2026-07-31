@@ -28,8 +28,8 @@ configured entirely from a web interface.
 - **Per-mailbox settings**: each mailbox has its own collection interval and its own
   per-pass cap, or simply follows the global ones.
 - **Web interface** (port 8080, Vue 3 + Vuetify): add mailboxes and destinations,
-  force a refresh, see the state of the last action, and click it to browse the last
-  10 actions — message by message, errors included.
+  force a refresh, see the state of the last action **of each mailbox**, and open its
+  own history — message by message, errors included.
 - **Every setting is checked when saved**, and a *Test* button lets you re-run the
   check whenever you want.
 - **Alerts on failure** by e-mail, ntfy, generic webhook or SMS (Free Mobile API).
@@ -177,7 +177,7 @@ the interface. The `.env` file only holds what is specific to the deployment:
 | `RUN_ON_START` | `true` | Collect once when the container starts |
 | `MAX_PER_RUN` | `50` | Messages handled per mailbox per pass. `0` = no cap |
 | `MAX_SIZE_MB` | `25` | Messages above this are skipped. `0` = no limit |
-| `HISTORY_MAX` | `200` | Actions kept in the history |
+| `HISTORY_MAX` | `200` | Actions kept **per mailbox** in the history (10 minimum) |
 | `POP3_TIMEOUT` / `SMTP_TIMEOUT` | `60000` | Network timeouts, in milliseconds |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 
@@ -251,7 +251,7 @@ changes its URLs.
 npm test
 ```
 
-45 tests, no network access needed: a fake POP3 server and a real SMTP server
+47 tests, no network access needed: a fake POP3 server and a real SMTP server
 (`smtp-server`) are started on the fly. They cover byte-for-byte preservation of an
 8-bit message, dot-stuffing, folded headers, RFC 2047 decoding, both header modes,
 absence of duplicates across two collections, move mode, an SMTP rejection leaving the

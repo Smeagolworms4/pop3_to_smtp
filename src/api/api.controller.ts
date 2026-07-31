@@ -51,6 +51,9 @@ export class ApiController {
       // Prochaine relève de chaque boîte : chacune a son propre rythme.
       nextRuns: this.scheduler.nextRuns,
       lastRun: this.store.getState().lastRun,
+      // Dernière action de chaque boîte : une carte doit montrer la sienne, pas
+      // celle de la voisine relevée entre-temps.
+      lastRuns: this.store.lastRuns(),
       config: maskConfig(config),
       // Réglages imposés par le .env : l'interface les affiche verrouillés.
       forced: forcedSettings(),
@@ -62,9 +65,9 @@ export class ApiController {
   }
 
   @Get('history')
-  history(@Query('limit') limit?: string) {
+  history(@Query('limit') limit?: string, @Query('sourceId') sourceId?: string) {
     const n = Math.min(200, Math.max(1, Number(limit) || 10));
-    return this.store.history(n);
+    return this.store.history(n, sourceId || undefined);
   }
 
   @Get('logs')

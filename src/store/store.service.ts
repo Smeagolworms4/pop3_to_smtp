@@ -110,12 +110,42 @@ export class StoreService implements OnModuleInit {
   pushHistory(entry: HistoryEntry): void {
     this.state.lastRun = entry;
     this.state.history.unshift(entry);
-    const max = Math.max(10, this.config.settings.historyMax);
-    if (this.state.history.length > max) this.state.history.length = max;
+    this.pruneHistory();
   }
 
-  history(limit: number): HistoryEntry[] {
-    return this.state.history.slice(0, limit);
+  /**
+   * Conserve les dernières actions **de chaque boîte**, et non les dernières
+   * tout court : sans ça, une boîte relevée toutes les 5 minutes efface à elle
+   * seule l'historique d'une boîte relevée une fois par jour.
+   */
+  private pruneHistory(): void {
+    const max = Math.max(10, this.config.settings.historyMax);
+    const kept = new Map<string, number>();
+
+    this.state.history = this.state.history.filter((entry) => {
+      const count = (kept.get(entry.sourceId) ?? 0) + 1;
+      kept.set(entry.sourceId, count);
+      return count <= max;
+    });
+  }
+
+  /** Historique, éventuellement restreint à une boîte. */
+  history(limit: number, sourceId?: string): HistoryEntry[] {
+    const all = sourceId
+      ? this.state.history.filter((h) => h.sourceId === sourceId)
+      : this.state.history;
+    return all.slice(0, limit);
+  }
+
+  /** Dernière action de chaque boîte, pour l'affichage des cartes. */
+  lastRuns(): Record<string, HistoryEntry> {
+    const out: Record<string, HistoryEntry> = {};
+    // L'historique est trié du plus récent au plus ancien : le premier vu pour
+    // une boîte est le bon.
+    for (const entry of this.state.history) {
+      if (!out[entry.sourceId]) out[entry.sourceId] = entry;
+    }
+    return out;
   }
 
   persistState(): Promise<void> {
