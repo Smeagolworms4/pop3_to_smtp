@@ -78,8 +78,16 @@ port 8080 is taken. See `.env.example` for the full list.
 
 Then open **http://localhost:8080** and, in this order:
 
-1. **Add a destination** — the SMTP server messages will leave through, and the address
-   they should be dropped into.
+1. **Add a destination** — where the messages will land. Three types to pick from, and
+   it is the only decision that needs any thought:
+   - **IMAP drop** (offered by default) — the message is filed into the mailbox as is.
+     An IMAP server and an app password, nothing more.
+   - **Gmail API** — same thing, except Gmail runs your filters on the way in. Needs an
+     OAuth authorization, done once.
+   - **SMTP send** — the classic redirection, to forward to any server that is not
+     Gmail.
+
+   The table in *[Three ways to deliver](#three-ways-to-deliver)* compares them.
 2. **Add a POP3 mailbox** — and pick the destination it should be forwarded to.
 
 Each save runs a real connection test and tells you what went wrong if anything did.
@@ -100,15 +108,19 @@ docker run -d \
 
 ### Gmail: you need an app password
 
-Gmail's SMTP server **rejects your account password**. You have to generate a
-16-character *app password*, which requires two-step verification to be enabled on the
-account first.
+Gmail **rejects your account password**, over IMAP as well as SMTP. You have to generate
+a 16-character *app password*, which requires two-step verification to be enabled on the
+account first. The same password works for both protocols.
 
 👉 **https://myaccount.google.com/apppasswords**
 
 The interface shows this link directly in the destination form as soon as it detects a
-Gmail server, along with the *Pre-fill for Gmail* button (`smtp.gmail.com`, port 587,
-STARTTLS).
+Gmail server, along with the *Pre-fill for Gmail* button — which fills in
+`imap.gmail.com` port 993 for an IMAP drop, or `smtp.gmail.com` port 587 for an SMTP
+send, depending on the type selected.
+
+The **Gmail API** destination uses no password at all: it goes through OAuth (see *[The
+Gmail API](#the-gmail-api-untouched-and-run-through-your-filters)*).
 
 ### Without Docker
 
@@ -292,9 +304,17 @@ on every configured channel and reports each result.
 - **First collection on an existing mailbox forwards everything it contains.** If the
   mailbox holds ten years of archives and you do not want them, use the 📋 button on the
   mailbox card: it marks the current content as already handled without sending anything.
-- **A message is only marked as handled once the SMTP server has accepted it**, and only
+- **A message is only marked as handled once the destination has accepted it**, and only
   deleted from the source after that. A crash mid-collection costs you a duplicate at
   worst, never a lost message.
+- **A message dropped over IMAP carries its original date**, not the collection time, so
+  it files itself where it belongs rather than at the top of the mailbox. That is what
+  makes it possible to collect ten years of archives without stacking them all at the
+  minute they were fetched — but it does surprise you the first time you collect a
+  message that is a few days old.
+- **A message dropped over IMAP goes through no filter at all**: no spam check, no
+  sorting rules, no category classifier. It lands straight in the chosen folder. If you
+  miss your filters, that is exactly what the *Gmail API* destination fixes.
 - **Move mode empties the source mailbox.** Deletions are only committed on `QUIT`, as
   the protocol mandates, so an interrupted collection leaves everything in place. Still:
   make sure the destination works before switching it on.
@@ -385,11 +405,29 @@ Without those two secrets, the workflows fail at the Docker Hub login step.
 your account password. Generate an [app
 password](https://myaccount.google.com/apppasswords).
 
-**Messages arrive from my own address instead of the sender's** — that is
-Gmail-compatible mode, and it is expected when sending through `smtp.gmail.com`. The
-original sender is on the *Reply-To* line, so replying works. To get the untouched
-version, send through another SMTP server: see *[Making it look like a real
-redirection](#making-it-look-like-a-real-redirection)*.
+**Messages arrive from my own address, and Gmail shows them as sent by me** — that is
+Gmail-compatible mode, unavoidable when sending through `smtp.gmail.com`: its submission
+server rewrites the `From:`. The original sender is on the *Reply-To* line, so replying
+works. To keep the original sender, switch the destination to an **IMAP drop** or the
+**Gmail API** — see *[Three ways to deliver](#three-ways-to-deliver)*.
+
+**Nothing shows up in the mailbox after a successful collection** — look at the date of
+the collected messages rather than at the top of the list: an IMAP drop keeps the
+original date, so a four-day-old message files itself four days down. The mailbox history
+in the interface tells you how many messages actually went out.
+
+**My Gmail filters do not apply** — an IMAP drop goes through no delivery chain. Use a
+*Gmail API* destination, which imports the message through Gmail's own sorting.
+
+**"autorisation Google expirée ou révoquée"** — the refresh token is dead. Three causes:
+the consent screen was left in *Testing* (Google then expires the token after 7 days —
+publish the app), you changed your Google account password, or access was revoked. Click
+*Connect the Google account* again.
+
+**"redirect_uri_mismatch" when authorizing** — the address declared in the Google console
+is not exactly the one the interface shows. Google matches it character for character:
+the `https://`, the host name and the `/api/oauth/callback` path all have to line up.
+Behind a proxy, check that it forwards `X-Forwarded-Proto` and `X-Forwarded-Host`.
 
 **Gmail hides some messages** — Gmail deduplicates by `Message-ID`, which is preserved
 on purpose. If a message was already in the account, the copy is hidden. Turn on
@@ -400,14 +438,17 @@ the thread grouping.
 `UIDL` on every session. Switch the mailbox to move mode: what has been sent is deleted,
 so nothing can come back.
 
-**The collection never ends** — raise `POP3_TIMEOUT` and `SMTP_TIMEOUT`, or lower
-`MAX_PER_RUN`. The history records the duration of each pass.
+**The collection never ends** — raise `POP3_TIMEOUT`, `SMTP_TIMEOUT` or `IMAP_TIMEOUT`,
+or lower `MAX_PER_RUN`. The history records the duration of each pass.
 
 ## Security
 
-The POP3 and SMTP passwords are stored **in clear text** in `data/config.json` — the
-protocols require them in clear, so there is nothing to gain from encrypting them next
-to the key. Treat that folder as a secret, and set `WEB_USER` / `WEB_PASSWORD` as soon
+The POP3, IMAP and SMTP passwords are stored **in clear text** in `data/config.json` —
+the protocols require them in clear, so there is nothing to gain from encrypting them
+next to the key. The Google refresh token sits there too, and is worth as much as a
+password: it grants the `gmail.insert` scope, meaning it can add messages to the mailbox
+— neither read them nor send any. You can revoke it at any time from [your Google
+account](https://myaccount.google.com/permissions). Treat that folder as a secret, and set `WEB_USER` / `WEB_PASSWORD` as soon
 as the interface leaves your local network: the API exposes the same configuration.
 
 Passwords never travel back to the browser: the interface receives a mask, and sending

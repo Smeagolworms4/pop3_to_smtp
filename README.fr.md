@@ -79,8 +79,16 @@ docker compose up -d
 
 Ouvrez ensuite **http://localhost:8080** et, dans cet ordre :
 
-1. **Ajoutez une destination** — le serveur SMTP par lequel les messages repartiront, et
-   l'adresse où les déposer.
+1. **Ajoutez une destination** — l'endroit où les messages atterriront. Trois types au
+   choix, et c'est la seule décision qui demande réflexion :
+   - **Dépôt IMAP** (proposé par défaut) — le message est rangé dans la boîte tel quel.
+     Serveur IMAP + mot de passe d'application, rien de plus.
+   - **API Gmail** — comme le dépôt, mais Gmail applique vos filtres au passage. Demande
+     une autorisation OAuth, à faire une fois.
+   - **Envoi SMTP** — la redirection classique, pour tout envoyer vers un serveur qui
+     n'est pas Gmail.
+
+   Le tableau de *[Trois façons de livrer](#trois-façons-de-livrer)* les compare.
 2. **Ajoutez une boîte POP3** — et choisissez la destination vers laquelle la rediriger.
 
 Chaque enregistrement lance un vrai test de connexion et vous dit ce qui cloche, le cas
@@ -101,15 +109,19 @@ docker run -d \
 
 ### Gmail : il faut un mot de passe d'application
 
-Le SMTP de Gmail **refuse le mot de passe de votre compte**. Il faut générer un *mot de
-passe d'application* de 16 caractères, ce qui suppose d'avoir activé la validation en
-deux étapes sur le compte.
+Gmail **refuse le mot de passe de votre compte**, en IMAP comme en SMTP. Il faut générer
+un *mot de passe d'application* de 16 caractères, ce qui suppose d'avoir activé la
+validation en deux étapes sur le compte. Le même mot de passe sert aux deux protocoles.
 
 👉 **https://myaccount.google.com/apppasswords**
 
 L'interface affiche ce lien directement dans le formulaire de destination dès qu'elle
-reconnaît un serveur Gmail, à côté du bouton *Pré-remplir pour Gmail*
-(`smtp.gmail.com`, port 587, STARTTLS).
+reconnaît un serveur Gmail, à côté du bouton *Pré-remplir pour Gmail* — qui remplit
+`imap.gmail.com` port 993 en dépôt IMAP, ou `smtp.gmail.com` port 587 en envoi SMTP,
+selon le type choisi.
+
+La destination **API Gmail**, elle, n'utilise pas de mot de passe du tout : elle passe par
+OAuth (voir *[L'API Gmail](#lapi-gmail--intact-et-passé-par-vos-filtres)*).
 
 ### Sans Docker
 
@@ -297,9 +309,16 @@ puis tire sur tous les canaux configurés et rend compte de chacun.
 - **La première relève d'une boîte existante redirige tout ce qu'elle contient.** Si la
   boîte porte dix ans d'archives et que vous n'en voulez pas, utilisez le bouton 📋 sur
   la carte de la boîte : il marque le contenu actuel comme déjà traité sans rien envoyer.
-- **Un message n'est marqué traité qu'une fois accepté par le serveur SMTP**, et n'est
+- **Un message n'est marqué traité qu'une fois accepté par la destination**, et n'est
   supprimé de la source qu'ensuite. Une panne au milieu d'une relève coûte au pire un
   doublon, jamais un message perdu.
+- **Un message déposé en IMAP porte sa date d'origine**, pas celle de la relève : il se
+  range donc à sa place dans la boîte, et non tout en haut. C'est ce qui permet de
+  relever dix ans d'archives sans les empiler à la minute où on les a récupérées — mais
+  cela surprend la première fois qu'on relève un message vieux de quelques jours.
+- **Un message déposé en IMAP ne passe par aucun filtre** : ni antispam, ni règles de
+  tri, ni classement par catégorie. Il atterrit directement dans le dossier choisi. Si
+  vos filtres vous manquent, c'est ce que règle la destination *API Gmail*.
 - **Le mode déplacement vide la boîte source.** Les suppressions ne sont validées qu'au
   `QUIT`, comme l'exige le protocole : une relève interrompue laisse tout en place. Cela
   dit, vérifiez que la destination fonctionne avant de l'activer.
@@ -391,11 +410,33 @@ Sans ces deux secrets, les workflows échouent à l'étape de connexion à Docke
 mot de passe de votre compte. Générez un [mot de passe
 d'application](https://myaccount.google.com/apppasswords).
 
-**Les messages arrivent de ma propre adresse au lieu de celle de l'expéditeur** — c'est
-le mode compatible Gmail, et c'est attendu quand on passe par `smtp.gmail.com`.
-L'expéditeur d'origine est en *Répondre à*, donc répondre fonctionne. Pour la version
-intacte, passez par un autre SMTP : voir *[Ressembler à une vraie
-redirection](#ressembler-à-une-vraie-redirection)*.
+**Les messages arrivent de ma propre adresse, et Gmail les affiche comme envoyés par
+moi** — c'est le mode compatible Gmail, inévitable quand on passe par `smtp.gmail.com` :
+son serveur de soumission réécrit le `From:`. L'expéditeur d'origine est en *Répondre à*,
+donc répondre fonctionne. Pour que le message garde son expéditeur, basculez la
+destination en **dépôt IMAP** ou en **API Gmail** — voir *[Trois façons de
+livrer](#trois-façons-de-livrer)*.
+
+**Rien n'apparaît dans la boîte après une relève réussie** — regardez la date des
+messages relevés plutôt que le haut de la liste : un dépôt IMAP conserve la date
+d'origine, donc un message vieux de quatre jours se range quatre jours plus bas.
+L'historique de la boîte, dans l'interface, dit combien de messages sont réellement
+partis.
+
+**Mes filtres Gmail ne s'appliquent pas** — un dépôt IMAP ne traverse aucune chaîne de
+livraison. Utilisez une destination *API Gmail*, qui importe le message en le faisant
+passer par le tri de Gmail.
+
+**« autorisation Google expirée ou révoquée »** — le jeton de rafraîchissement est mort.
+Trois causes : l'écran de consentement est resté en *Test* (Google fait alors expirer le
+jeton au bout de 7 jours — publiez l'application), vous avez changé le mot de passe de
+votre compte Google, ou l'accès a été retiré. Recliquez sur *Connecter le compte Google*.
+
+**« redirect_uri_mismatch » au moment d'autoriser** — l'adresse déclarée dans la console
+Google n'est pas exactement celle que l'interface affiche. Google compare au caractère
+près : le `https://`, le nom d'hôte et le chemin `/api/oauth/callback` doivent
+correspondre. Derrière un proxy, vérifiez qu'il transmet bien `X-Forwarded-Proto` et
+`X-Forwarded-Host`.
 
 **Gmail masque certains messages** — Gmail déduplique par `Message-ID`, qu'on préserve
 volontairement. Si un message était déjà dans le compte, la copie est masquée. Activez
@@ -406,14 +447,18 @@ en fil de discussion.
 `UIDL` différent à chaque session. Passez la boîte en mode déplacement : ce qui est
 envoyé est supprimé, donc rien ne peut revenir.
 
-**La relève n'en finit pas** — augmentez `POP3_TIMEOUT` et `SMTP_TIMEOUT`, ou baissez
-`MAX_PER_RUN`. L'historique indique la durée de chaque passage.
+**La relève n'en finit pas** — augmentez `POP3_TIMEOUT`, `SMTP_TIMEOUT` ou
+`IMAP_TIMEOUT`, ou baissez `MAX_PER_RUN`. L'historique indique la durée de chaque
+passage.
 
 ## Sécurité
 
-Les mots de passe POP3 et SMTP sont stockés **en clair** dans `data/config.json` — les
-protocoles les exigent en clair, il n'y a donc rien à gagner à les chiffrer à côté de la
-clé. Traitez ce dossier comme un secret, et renseignez `WEB_USER` / `WEB_PASSWORD` dès
+Les mots de passe POP3, IMAP et SMTP sont stockés **en clair** dans `data/config.json` —
+les protocoles les exigent en clair, il n'y a donc rien à gagner à les chiffrer à côté de
+la clé. Le jeton de rafraîchissement Google y est également, et vaut autant qu'un mot de
+passe : il donne le droit `gmail.insert`, c'est-à-dire ajouter des messages à la boîte —
+ni les lire, ni en envoyer. Il se révoque à tout moment depuis
+[votre compte Google](https://myaccount.google.com/permissions). Traitez ce dossier comme un secret, et renseignez `WEB_USER` / `WEB_PASSWORD` dès
 que l'interface sort de votre réseau local : l'API expose la même configuration.
 
 Les mots de passe ne repartent jamais vers le navigateur : l'interface reçoit un masque,
