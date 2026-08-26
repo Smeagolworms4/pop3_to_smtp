@@ -16,7 +16,7 @@
 <body>
 <div id="app">
 <v-app>
-  <v-app-bar density="comfortable" color="surface" flat border>
+  <v-app-bar v-if="ready" density="comfortable" color="surface" flat border>
     <v-app-bar-title>
       <span class="font-weight-bold">pop3</span>
       <span class="text-medium-emphasis mx-1">→</span>
@@ -36,35 +36,54 @@
 
     <v-btn class="mr-2" variant="tonal" prepend-icon="mdi-refresh"
            :loading="status.running" :disabled="!canRun" @click="runAll()">
-      Relever maintenant
+      {{ t('app.refreshNow') }}
     </v-btn>
-    <v-btn class="mr-1" variant="text" icon="mdi-history" title="Historique"
+    <v-btn class="mr-1" variant="text" icon="mdi-history" :title="t('app.history')"
            @click="openHistory()"></v-btn>
-    <v-btn class="mr-1" variant="text" icon="mdi-bell-outline" title="Alertes"
+    <v-btn class="mr-1" variant="text" icon="mdi-bell-outline" :title="t('app.alerts')"
            @click="openNotify()"></v-btn>
-    <v-btn class="mr-2" variant="text" icon="mdi-cog-outline" title="Réglages"
+    <v-btn class="mr-1" variant="text" icon="mdi-cog-outline" :title="t('app.settings')"
            @click="openSettings()"></v-btn>
+
+    <!-- Langue : celle du navigateur par défaut, changeable à tout moment. -->
+    <v-menu>
+      <template #activator="{ props }">
+        <v-btn class="mr-2" variant="text" icon="mdi-translate" v-bind="props"
+               :title="t('app.language')"></v-btn>
+      </template>
+      <v-list density="compact">
+        <v-list-item v-for="item in langItems" :key="item.value"
+                     :active="item.value === lang" @click="setLang(item.value)">
+          <v-list-item-title>{{ item.title }}</v-list-item-title>
+        </v-list-item>
+      </v-list>
+    </v-menu>
   </v-app-bar>
 
-  <v-main>
+  <!-- Le temps que les traductions arrivent : pas de clés brutes à l'écran. -->
+  <v-main v-if="!ready" class="d-flex align-center justify-center">
+    <v-progress-circular indeterminate color="primary" class="ma-8"></v-progress-circular>
+  </v-main>
+
+  <v-main v-else>
     <v-progress-linear v-if="status.running" indeterminate color="primary"></v-progress-linear>
 
     <v-container fluid>
       <!-- Premier lancement : on guide plutôt que d'afficher deux colonnes vides. -->
       <v-alert v-if="!targets.length" type="info" variant="tonal" border="start" class="mb-4"
                icon="mdi-numeric-1-circle-outline">
-        Commencez par déclarer une <strong>destination</strong> : le serveur SMTP par lequel les
-        messages repartiront, et l'adresse où les déposer.
+        {{ t('start.destination') }}
         <template #append>
-          <v-btn color="primary" variant="flat" size="small" @click="newTarget()">Ajouter</v-btn>
+          <v-btn color="primary" variant="flat" size="small"
+                 @click="newTarget()">{{ t('common.add') }}</v-btn>
         </template>
       </v-alert>
       <v-alert v-else-if="!sources.length" type="info" variant="tonal" border="start" class="mb-4"
                icon="mdi-numeric-2-circle-outline">
-        Ajoutez maintenant une <strong>boîte POP3</strong> à relever, et choisissez vers quelle
-        destination elle doit repartir.
+        {{ t('start.mailbox') }}
         <template #append>
-          <v-btn color="primary" variant="flat" size="small" @click="newSource()">Ajouter</v-btn>
+          <v-btn color="primary" variant="flat" size="small"
+                 @click="newSource()">{{ t('common.add') }}</v-btn>
         </template>
       </v-alert>
 
@@ -72,10 +91,11 @@
         <!-- Boîtes POP3 -->
         <v-col cols="12" lg="7">
           <div class="d-flex align-center mb-3">
-            <h2 class="text-h6">Boîtes relevées</h2>
+            <h2 class="text-h6">{{ t('sources.title') }}</h2>
             <v-spacer></v-spacer>
             <v-btn color="primary" variant="flat" size="small" prepend-icon="mdi-plus"
-                   :disabled="!targets.length" @click="newSource()">Ajouter une boîte</v-btn>
+                   :disabled="!targets.length"
+                   @click="newSource()">{{ t('sources.add') }}</v-btn>
           </div>
 
           <v-card v-for="s in sources" :key="s.id" border class="mb-3">
@@ -87,7 +107,8 @@
               </template>
               <v-card-title class="d-flex align-center ga-2">
                 {{ s.name }}
-                <v-chip v-if="!s.enabled" size="x-small" variant="tonal">désactivée</v-chip>
+                <v-chip v-if="!s.enabled" size="x-small"
+                        variant="tonal">{{ t('common.disabled') }}</v-chip>
               </v-card-title>
               <v-card-subtitle class="mono">
                 {{ s.user }} — {{ s.host }}:{{ s.port }}
@@ -101,7 +122,7 @@
                 </v-chip>
                 <v-chip size="small" variant="tonal"
                         :prepend-icon="s.deleteAfterFetch ? 'mdi-file-move-outline' : 'mdi-content-copy'">
-                  {{ s.deleteAfterFetch ? 'déplacement' : 'copie' }}
+                  {{ s.deleteAfterFetch ? t('sources.move') : t('sources.copy') }}
                 </v-chip>
                 <v-chip size="small" variant="tonal" :prepend-icon="securityIcon(s.security)">
                   {{ securityLabel(s.security) }}
@@ -127,23 +148,23 @@
                   {{ lastFor(s.id).error }}
                 </div>
               </v-alert>
-              <div v-else class="text-caption text-medium-emphasis">Jamais relevée.</div>
+              <div v-else class="text-caption text-medium-emphasis">{{ t('sources.never') }}</div>
             </v-card-text>
 
             <v-card-actions>
               <v-btn variant="tonal" size="small" prepend-icon="mdi-refresh"
-                     :disabled="!canRun" @click="runSource(s)">Relever</v-btn>
+                     :disabled="!canRun" @click="runSource(s)">{{ t('sources.collect') }}</v-btn>
               <v-btn variant="text" size="small" prepend-icon="mdi-lan-connect"
-                     :loading="testing === s.id" @click="testSource(s)">Tester</v-btn>
+                     :loading="testing === s.id" @click="testSource(s)">{{ t('common.test') }}</v-btn>
               <v-btn variant="text" size="small" prepend-icon="mdi-history"
-                     @click="openHistory(s)">Historique</v-btn>
+                     @click="openHistory(s)">{{ t('app.history') }}</v-btn>
               <v-spacer></v-spacer>
-              <v-btn variant="text" size="small" icon="mdi-pencil" title="Modifier"
+              <v-btn variant="text" size="small" icon="mdi-pencil" :title="t('common.edit')"
                      @click="editSource(s)"></v-btn>
               <v-btn variant="text" size="small" icon="mdi-playlist-check"
-                     title="Marquer le contenu actuel comme déjà traité"
+                     :title="t('sources.markSeenTitle')"
                      @click="markSeen(s)"></v-btn>
-              <v-btn variant="text" size="small" icon="mdi-delete-outline" title="Supprimer"
+              <v-btn variant="text" size="small" icon="mdi-delete-outline" :title="t('common.delete')"
                      @click="removeSource(s)"></v-btn>
             </v-card-actions>
           </v-card>
@@ -152,50 +173,51 @@
         <!-- Destinations SMTP -->
         <v-col cols="12" lg="5">
           <div class="d-flex align-center mb-3">
-            <h2 class="text-h6">Destinations</h2>
+            <h2 class="text-h6">{{ t('targets.title') }}</h2>
             <v-spacer></v-spacer>
             <v-btn color="primary" variant="flat" size="small" prepend-icon="mdi-plus"
-                   @click="newTarget()">Ajouter</v-btn>
+                   @click="newTarget()">{{ t('common.add') }}</v-btn>
           </div>
 
-          <v-card v-for="t in targets" :key="t.id" border class="mb-3">
+          <v-card v-for="dest in targets" :key="dest.id" border class="mb-3">
             <v-card-item>
               <template #prepend>
-                <v-avatar :color="t.enabled ? 'success' : 'surface-variant'" variant="tonal">
-                  <v-icon :icon="targetIcon(t)"></v-icon>
+                <v-avatar :color="dest.enabled ? 'success' : 'surface-variant'" variant="tonal">
+                  <v-icon :icon="targetIcon(dest)"></v-icon>
                 </v-avatar>
               </template>
               <v-card-title class="d-flex align-center ga-2">
-                {{ t.name }}
-                <v-chip v-if="!t.enabled" size="x-small" variant="tonal">désactivée</v-chip>
+                {{ dest.name }}
+                <v-chip v-if="!dest.enabled" size="x-small"
+                        variant="tonal">{{ t('common.disabled') }}</v-chip>
               </v-card-title>
-              <v-card-subtitle class="mono">{{ targetBox(t) }}</v-card-subtitle>
+              <v-card-subtitle class="mono">{{ targetBox(dest) }}</v-card-subtitle>
             </v-card-item>
 
             <v-card-text class="pt-0">
               <div class="d-flex align-center flex-wrap ga-2">
-                <v-chip v-if="t.kind !== 'gmail-api'" size="small" variant="tonal"
+                <v-chip v-if="dest.kind !== 'gmail-api'" size="small" variant="tonal"
                         prepend-icon="mdi-server">
-                  {{ t.host }}:{{ t.port }}
+                  {{ dest.host }}:{{ dest.port }}
                 </v-chip>
                 <v-chip v-else size="small" variant="tonal" prepend-icon="mdi-api">
-                  API Gmail
+                  {{ t('targets.gmailApiChip') }}
                 </v-chip>
                 <v-chip size="small" variant="tonal"
-                        :prepend-icon="modeOf(t) === 'gmail-safe' ? 'mdi-shield-half-full' : 'mdi-shield-check-outline'">
-                  {{ modeLabel(modeOf(t)) }}
+                        :prepend-icon="modeOf(dest) === 'gmail-safe' ? 'mdi-shield-half-full' : 'mdi-shield-check-outline'">
+                  {{ modeLabel(modeOf(dest)) }}
                 </v-chip>
               </div>
             </v-card-text>
 
             <v-card-actions>
               <v-btn variant="text" size="small" prepend-icon="mdi-lan-connect"
-                     :loading="testing === t.id" @click="testTarget(t)">Tester</v-btn>
+                     :loading="testing === dest.id" @click="testTarget(dest)">{{ t('common.test') }}</v-btn>
               <v-spacer></v-spacer>
-              <v-btn variant="text" size="small" icon="mdi-pencil" title="Modifier"
-                     @click="editTarget(t)"></v-btn>
-              <v-btn variant="text" size="small" icon="mdi-delete-outline" title="Supprimer"
-                     @click="removeTarget(t)"></v-btn>
+              <v-btn variant="text" size="small" icon="mdi-pencil" :title="t('common.edit')"
+                     @click="editTarget(dest)"></v-btn>
+              <v-btn variant="text" size="small" icon="mdi-delete-outline" :title="t('common.delete')"
+                     @click="removeTarget(dest)"></v-btn>
             </v-card-actions>
           </v-card>
         </v-col>
@@ -206,36 +228,36 @@
   <!-- ------------------------------------------------------- Boîte POP3 -->
   <v-dialog v-model="sourceDialog" max-width="720" scrollable>
     <v-card>
-      <v-card-title>{{ sourceForm.id ? 'Modifier la boîte' : 'Nouvelle boîte POP3' }}</v-card-title>
+      <v-card-title>{{ t(sourceForm.id ? 'sources.dialogEdit' : 'sources.dialogNew') }}</v-card-title>
       <v-card-text>
         <v-row dense>
           <v-col cols="12" sm="6">
-            <v-text-field v-model="sourceForm.name" label="Nom" density="comfortable"
-                          placeholder="Boîte du FAI"></v-text-field>
+            <v-text-field v-model="sourceForm.name" :label="t('common.name')" density="comfortable"
+                          :placeholder="t('sources.namePlaceholder')"></v-text-field>
           </v-col>
           <v-col cols="12" sm="6">
             <v-select v-model="sourceForm.targetId" :items="targetItems" item-title="title"
-                      item-value="value" label="Rediriger vers" density="comfortable"></v-select>
+                      item-value="value" :label="t('sources.forwardTo')" density="comfortable"></v-select>
           </v-col>
           <v-col cols="12" sm="7">
-            <v-text-field v-model="sourceForm.host" label="Serveur POP3" density="comfortable"
-                          placeholder="pop.mon-fai.fr"></v-text-field>
+            <v-text-field v-model="sourceForm.host" :label="t('sources.server')" density="comfortable"
+                          :placeholder="t('sources.serverPlaceholder')"></v-text-field>
           </v-col>
           <v-col cols="6" sm="3">
             <v-select v-model="sourceForm.security" :items="securityItems" item-title="title"
-                      item-value="value" label="Chiffrement" density="comfortable"
+                      item-value="value" :label="t('common.encryption')" density="comfortable"
                       @update:model-value="syncPop3Port"></v-select>
           </v-col>
           <v-col cols="6" sm="2">
-            <v-text-field v-model.number="sourceForm.port" label="Port" type="number"
+            <v-text-field v-model.number="sourceForm.port" :label="t('common.port')" type="number"
                           density="comfortable"></v-text-field>
           </v-col>
           <v-col cols="12" sm="6">
-            <v-text-field v-model="sourceForm.user" label="Identifiant" density="comfortable"
+            <v-text-field v-model="sourceForm.user" :label="t('common.user')" density="comfortable"
                           autocomplete="off"></v-text-field>
           </v-col>
           <v-col cols="12" sm="6">
-            <v-text-field v-model="sourceForm.pass" label="Mot de passe" type="password"
+            <v-text-field v-model="sourceForm.pass" :label="t('common.password')" type="password"
                           density="comfortable" autocomplete="new-password"></v-text-field>
           </v-col>
 
@@ -243,38 +265,35 @@
                de support n'ont pas besoin du même. -->
           <v-col cols="12" sm="6">
             <v-select v-model="sourceRefreshMode" :items="refreshModeItems" item-title="title"
-                      item-value="value" label="Fréquence de relève"
+                      item-value="value" :label="t('sources.frequency')"
                       density="comfortable"></v-select>
           </v-col>
           <v-col cols="6" sm="3" v-if="sourceRefreshMode === 'custom'">
             <v-text-field v-model.number="sourceForm.refreshMinutes" type="number"
-                          label="Toutes les (min)" density="comfortable"></v-text-field>
+                          :label="t('sources.everyMinutes')" density="comfortable"></v-text-field>
           </v-col>
           <v-col cols="6" :sm="sourceRefreshMode === 'custom' ? 3 : 6">
             <v-text-field v-model="sourceMaxPerRun" type="number"
-                          label="Messages max par passage" density="comfortable"
-                          placeholder="réglage global"
-                          hint="vide = réglage global · 0 = illimité"
+                          :label="t('sources.maxPerRun')" density="comfortable"
+                          :placeholder="t('sources.globalSetting')"
+                          :hint="t('sources.maxPerRunHint')"
                           persistent-hint></v-text-field>
           </v-col>
 
           <v-col cols="12">
             <v-switch v-model="sourceForm.deleteAfterFetch" color="primary" density="compact"
                       hide-details
-                      :label="sourceForm.deleteAfterFetch
-                        ? 'Déplacement : le message est supprimé de la boîte une fois renvoyé'
-                        : 'Copie : le message reste sur le serveur POP3'"></v-switch>
+                      :label="t(sourceForm.deleteAfterFetch ? 'sources.moveLabel' : 'sources.copyLabel')"></v-switch>
             <v-switch v-model="sourceForm.enabled" color="primary" density="compact" hide-details
-                      label="Relevée automatiquement"></v-switch>
+                      :label="t('sources.autoCollect')"></v-switch>
             <v-switch v-model="sourceForm.allowInvalidCert" color="warning" density="compact"
                       hide-details
-                      label="Accepter un certificat auto-signé"></v-switch>
+                      :label="t('common.selfSigned')"></v-switch>
           </v-col>
 
           <v-col cols="12" v-if="sourceForm.deleteAfterFetch">
             <v-alert type="warning" variant="tonal" density="compact">
-              En mode déplacement, la boîte source est vidée au fur et à mesure. Les messages
-              n'existeront plus qu'à la destination : assurez-vous qu'elle fonctionne avant.
+              {{ t('sources.moveWarning') }}
             </v-alert>
           </v-col>
         </v-row>
@@ -284,11 +303,11 @@
       </v-card-text>
       <v-card-actions>
         <v-btn variant="text" prepend-icon="mdi-lan-connect" :loading="testingForm"
-               @click="testSourceForm()">Tester la connexion</v-btn>
+               @click="testSourceForm()">{{ t('common.testConnection') }}</v-btn>
         <v-spacer></v-spacer>
-        <v-btn variant="text" @click="sourceDialog = false">Annuler</v-btn>
+        <v-btn variant="text" @click="sourceDialog = false">{{ t('common.cancel') }}</v-btn>
         <v-btn color="primary" variant="flat" :loading="saving" @click="saveSource()">
-          Enregistrer
+          {{ t('common.save') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -298,7 +317,7 @@
   <v-dialog v-model="targetDialog" max-width="760" scrollable>
     <v-card>
       <v-card-title>
-        {{ targetForm.id ? 'Modifier la destination' : 'Nouvelle destination' }}
+        {{ t(targetForm.id ? 'targets.dialogEdit' : 'targets.dialogNew') }}
       </v-card-title>
       <v-card-text>
         <!--
@@ -308,78 +327,64 @@
         -->
         <v-btn-toggle v-model="targetKind" mandatory divided variant="outlined"
                       density="comfortable" class="mb-3">
-          <v-btn value="imap" prepend-icon="mdi-inbox-arrow-down">Dépôt IMAP</v-btn>
-          <v-btn value="gmail-api" prepend-icon="mdi-gmail">API Gmail</v-btn>
-          <v-btn value="smtp" prepend-icon="mdi-send-outline">Envoi SMTP</v-btn>
+          <v-btn value="imap" prepend-icon="mdi-inbox-arrow-down">{{ t('targets.kindImap') }}</v-btn>
+          <v-btn value="gmail-api" prepend-icon="mdi-gmail">{{ t('targets.kindGmailApi') }}</v-btn>
+          <v-btn value="smtp" prepend-icon="mdi-send-outline">{{ t('targets.kindSmtp') }}</v-btn>
         </v-btn-toggle>
 
         <v-btn v-if="!isGmailApi" class="mb-3 ms-sm-3" size="small" variant="tonal"
                prepend-icon="mdi-gmail"
-               @click="applyGmailPreset()">Pré-remplir pour Gmail</v-btn>
+               @click="applyGmailPreset()">{{ t('targets.gmailPreset') }}</v-btn>
 
         <v-alert v-if="isGmailApi" type="success" variant="tonal" density="compact" class="mb-3"
                  icon="mdi-filter-check-outline">
-          <div class="font-weight-medium mb-1">Intact, et passé par vos filtres</div>
-          <div class="text-body-2">
-            Le message est importé dans la boîte au lieu d'être réexpédié : l'expéditeur d'origine
-            est conservé, comme avec le dépôt IMAP. Mais Gmail le fait passer par sa chaîne de
-            livraison, donc vos filtres, le classement par catégorie et l'antispam s'appliquent.
-            En échange, il faut autoriser l'accès une fois via Google plutôt qu'un simple mot de
-            passe d'application.
-          </div>
+          <div class="font-weight-medium mb-1">{{ t('targets.apiTitle') }}</div>
+          <div class="text-body-2">{{ t('targets.apiBody') }}</div>
         </v-alert>
 
         <v-alert v-if="isImap" type="success" variant="tonal" density="compact" class="mb-3"
                  icon="mdi-shield-check">
-          <div class="font-weight-medium mb-1">Le message arrive intact</div>
-          <div class="text-body-2">
-            Il est déposé tel quel dans le dossier, sans passer par un serveur d'envoi :
-            expéditeur d'origine, signature et pièces jointes conservés. C'est le seul mode où
-            Gmail ne présente pas les messages relevés comme envoyés par vous.
-          </div>
+          <div class="font-weight-medium mb-1">{{ t('targets.imapTitle') }}</div>
+          <div class="text-body-2">{{ t('targets.imapBody') }}</div>
         </v-alert>
 
         <!-- Aide mot de passe d'application : le point qui bloque tout le monde. -->
         <v-alert v-if="isGmail(targetForm.host) && !isGmailApi" type="info" variant="tonal"
                  density="compact" class="mb-3" icon="mdi-key-outline">
-          <div class="font-weight-medium mb-1">Gmail exige un mot de passe d'application</div>
-          <div class="text-body-2">
-            Le mot de passe de votre compte est refusé par le SMTP. Activez la validation en deux
-            étapes, puis générez un mot de passe d'application de 16 caractères et collez-le
-            ci-dessous.
-          </div>
+          <div class="font-weight-medium mb-1">{{ t('targets.gmailPasswordTitle') }}</div>
+          <div class="text-body-2">{{ t('targets.gmailPasswordBody') }}</div>
           <template #append>
             <v-btn size="small" variant="flat" color="info" append-icon="mdi-open-in-new"
                    href="https://myaccount.google.com/apppasswords" target="_blank"
-                   rel="noopener">Générer</v-btn>
+                   rel="noopener">{{ t('targets.generate') }}</v-btn>
           </template>
         </v-alert>
 
         <v-row dense>
           <v-col cols="12" sm="6">
-            <v-text-field v-model="targetForm.name" label="Nom" density="comfortable"
-                          placeholder="Mon Gmail"></v-text-field>
+            <v-text-field v-model="targetForm.name" :label="t('common.name')" density="comfortable"
+                          :placeholder="t('targets.namePlaceholder')"></v-text-field>
           </v-col>
           <v-col cols="12" sm="6">
-            <v-text-field v-if="isImap" v-model="targetForm.folder" label="Dossier"
+            <v-text-field v-if="isImap" v-model="targetForm.folder" :label="t('targets.folder')"
                           density="comfortable" placeholder="INBOX"
-                          hint="INBOX = la boîte de réception" persistent-hint></v-text-field>
+                          :hint="t('targets.folderHint')" persistent-hint></v-text-field>
             <v-text-field v-else v-model="targetForm.to"
-                          :label="isGmailApi ? 'Adresse du compte' : 'Déposer les messages sur'"
+                          :label="t(isGmailApi ? 'targets.accountAddress' : 'targets.dropOn')"
                           density="comfortable" placeholder="moi@gmail.com"
-                          :hint="isGmailApi ? 'Indicatif : la boîte est celle du compte autorisé' : ''"
+                          :hint="isGmailApi ? t('targets.accountAddressHint') : ''"
                           persistent-hint></v-text-field>
           </v-col>
 
           <!-- Parcours d'autorisation Google : deux champs, un bouton, un état. -->
           <template v-if="isGmailApi">
             <v-col cols="12">
-              <v-text-field v-model="targetForm.oauthClientId" label="Identifiant client OAuth"
+              <v-text-field v-model="targetForm.oauthClientId" :label="t('oauth.clientId')"
                             density="comfortable" autocomplete="off"
                             placeholder="123456789-xxxx.apps.googleusercontent.com"></v-text-field>
             </v-col>
             <v-col cols="12">
-              <v-text-field v-model="targetForm.oauthClientSecret" label="Secret client OAuth"
+              <v-text-field v-model="targetForm.oauthClientSecret" :label="t('oauth.clientSecret')"
                             type="password" density="comfortable"
                             autocomplete="new-password"></v-text-field>
             </v-col>
@@ -388,14 +393,12 @@
                        density="compact" class="mb-2"
                        :icon="googleConnected ? 'mdi-check-decagram' : 'mdi-account-alert-outline'">
                 <div class="text-body-2">
-                  {{ googleConnected
-                     ? 'Compte Google connecté. Reconnectez-le si vous changez de mot de passe Google.'
-                     : 'Compte Google pas encore connecté : renseignez les identifiants du client, puis autorisez l’accès.' }}
+                  {{ t(googleConnected ? 'oauth.connected' : 'oauth.notConnected') }}
                 </div>
               </v-alert>
 
               <div class="text-caption text-medium-emphasis mb-1">
-                À déclarer dans la console Google comme URI de redirection autorisée :
+                {{ t('oauth.redirectHint') }}
               </div>
               <v-text-field :model-value="status.oauthRedirectUri" readonly density="compact"
                             variant="outlined" class="mono mb-2" hide-details
@@ -404,86 +407,86 @@
 
               <v-btn color="primary" variant="flat" prepend-icon="mdi-google"
                      :loading="connecting" @click="connectGoogle()">
-                {{ googleConnected ? 'Reconnecter le compte Google' : 'Connecter le compte Google' }}
+                {{ t(googleConnected ? 'oauth.reconnect' : 'oauth.connect') }}
               </v-btn>
               <v-btn class="ms-2" variant="text" append-icon="mdi-open-in-new"
                      href="https://console.cloud.google.com/apis/credentials" target="_blank"
-                     rel="noopener">Console Google</v-btn>
+                     rel="noopener">{{ t('oauth.console') }}</v-btn>
             </v-col>
           </template>
 
           <v-col v-if="!isGmailApi" cols="12" sm="7">
-            <v-text-field v-model="targetForm.host" :label="hostLabel" density="comfortable"
+            <v-text-field v-model="targetForm.host" :label="t(hostLabel)" density="comfortable"
                           :placeholder="hostPlaceholder"></v-text-field>
           </v-col>
           <v-col v-if="!isGmailApi" cols="6" sm="3">
             <v-select v-model="smtpSecurity" :items="targetSecurityItems" item-title="title"
-                      item-value="value" label="Chiffrement" density="comfortable"></v-select>
+                      item-value="value" :label="t('common.encryption')" density="comfortable"></v-select>
           </v-col>
           <v-col v-if="!isGmailApi" cols="6" sm="2">
-            <v-text-field v-model.number="targetForm.port" label="Port" type="number"
+            <v-text-field v-model.number="targetForm.port" :label="t('common.port')" type="number"
                           density="comfortable"></v-text-field>
           </v-col>
           <v-col v-if="!isGmailApi" cols="12" sm="6">
-            <v-text-field v-model="targetForm.user" :label="userLabel" density="comfortable"
-                          :hint="isImap ? 'L’adresse complète du compte' : ''" persistent-hint
+            <v-text-field v-model="targetForm.user" :label="t(userLabel)" density="comfortable"
+                          :hint="isImap ? t('targets.userImapHint') : ''" persistent-hint
                           autocomplete="off"></v-text-field>
           </v-col>
           <v-col v-if="!isGmailApi" cols="12" sm="6">
-            <v-text-field v-model="targetForm.pass" label="Mot de passe" type="password"
+            <v-text-field v-model="targetForm.pass" :label="t('common.password')" type="password"
                           density="comfortable" autocomplete="new-password"
-                          :hint="isGmail(targetForm.host) ? 'Mot de passe d’application, pas celui du compte' : ''"
+                          :hint="isGmail(targetForm.host) ? t('targets.appPasswordHint') : ''"
                           persistent-hint></v-text-field>
           </v-col>
 
           <v-col cols="12">
             <v-expansion-panels variant="accordion" class="mt-2">
-              <v-expansion-panel title="Réglages avancés">
+              <v-expansion-panel :title="t('advanced.title')">
                 <v-expansion-panel-text>
                   <!-- Réécrire des en-têtes n'a de sens que si on réexpédie. -->
                   <template v-if="isGmailApi">
                     <v-switch v-model="targetForm.neverMarkSpam" color="warning" density="compact"
                               hide-details
-                              label="Ne jamais classer en spam (désarme le filtre de Gmail)"></v-switch>
+                              :label="t('advanced.neverSpam')"></v-switch>
                   </template>
 
                   <template v-else-if="isImap">
                     <v-text-field v-model="targetForm.to"
-                                  label="Adresse de la boîte (facultatif)" density="comfortable"
-                                  hint="Sert aux en-têtes de traçage. Vide = l'identifiant IMAP."
+                                  :label="t('advanced.boxAddress')" density="comfortable"
+                                  :hint="t('advanced.boxAddressHint')"
                                   persistent-hint class="mb-3"></v-text-field>
 
                     <v-switch v-model="targetForm.markRead" color="primary" density="compact"
                               hide-details
-                              label="Déposer les messages déjà lus (sans notification)"></v-switch>
+                              :label="t('advanced.markRead')"></v-switch>
                   </template>
 
                   <template v-else>
                     <v-select v-model="targetForm.headerMode" :items="modeItems" item-title="title"
-                              item-value="value" label="Traitement des en-têtes"
+                              item-value="value" :label="t('advanced.headerMode')"
                               density="comfortable"></v-select>
                     <div class="text-caption text-medium-emphasis mb-4">{{ modeHelp }}</div>
 
                     <v-select v-model="targetForm.envelopeFrom" :items="envelopeItems"
                               item-title="title" item-value="value"
-                              label="Expéditeur d'enveloppe (MAIL FROM)"
+                              :label="t('advanced.envelopeFrom')"
                               density="comfortable"></v-select>
 
-                    <v-text-field v-model="targetForm.from" label="Adresse d'envoi (facultatif)"
+                    <v-text-field v-model="targetForm.from" :label="t('advanced.fromAddress')"
                                   density="comfortable"
-                                  hint="Vide = l'identifiant SMTP" persistent-hint
+                                  :hint="t('advanced.fromAddressHint')" persistent-hint
                                   class="mb-3"></v-text-field>
 
                     <v-switch v-model="targetForm.newMessageId" color="primary" density="compact"
                               hide-details
-                              label="Regénérer le Message-ID (à n'activer que si Gmail masque des doublons)"></v-switch>
+                              :label="t('advanced.newMessageId')"></v-switch>
                   </template>
 
                   <v-switch v-model="targetForm.enabled" color="primary" density="compact"
-                            hide-details label="Destination active"></v-switch>
+                            hide-details :label="t('targets.enabled')"></v-switch>
                   <v-switch v-if="!isGmailApi" v-model="targetForm.allowInvalidCert"
                             color="warning" density="compact" hide-details
-                            label="Accepter un certificat auto-signé"></v-switch>
+                            :label="t('common.selfSigned')"></v-switch>
                 </v-expansion-panel-text>
               </v-expansion-panel>
             </v-expansion-panels>
@@ -495,11 +498,11 @@
       </v-card-text>
       <v-card-actions>
         <v-btn variant="text" prepend-icon="mdi-lan-connect" :loading="testingForm"
-               @click="testTargetForm()">Tester la connexion</v-btn>
+               @click="testTargetForm()">{{ t('common.testConnection') }}</v-btn>
         <v-spacer></v-spacer>
-        <v-btn variant="text" @click="targetDialog = false">Annuler</v-btn>
+        <v-btn variant="text" @click="targetDialog = false">{{ t('common.cancel') }}</v-btn>
         <v-btn color="primary" variant="flat" :loading="saving" @click="saveTarget()">
-          Enregistrer
+          {{ t('common.save') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -508,37 +511,37 @@
   <!-- -------------------------------------------------------- Réglages -->
   <v-dialog v-model="settingsDialog" max-width="620">
     <v-card>
-      <v-card-title>Réglages</v-card-title>
+      <v-card-title>{{ t('settings.title') }}</v-card-title>
       <v-card-text>
         <v-text-field v-model.number="settingsForm.refreshMinutes" type="number"
-                      label="Relever toutes les (minutes)" density="comfortable"
+                      :label="t('settings.refreshMinutes')" density="comfortable"
                       :disabled="isForced('refreshMinutes')" :hint="forcedHint('refreshMinutes')"
                       persistent-hint
-                      messages="0 désactive la relève automatique"></v-text-field>
+                      :messages="t('settings.refreshMinutesHint')"></v-text-field>
         <v-text-field v-model.number="settingsForm.maxPerRun" type="number" class="mt-3"
-                      label="Messages traités au maximum par passage et par boîte"
+                      :label="t('settings.maxPerRun')"
                       density="comfortable" :disabled="isForced('maxPerRun')"
                       :hint="forcedHint('maxPerRun')" persistent-hint
-                      messages="0 = pas de plafond"></v-text-field>
+                      :messages="t('settings.maxPerRunHint')"></v-text-field>
         <v-text-field v-model.number="settingsForm.maxSizeMb" type="number" class="mt-3"
-                      label="Taille maximale d'un message (Mo)" density="comfortable"
+                      :label="t('settings.maxSizeMb')" density="comfortable"
                       :disabled="isForced('maxSizeMb')" :hint="forcedHint('maxSizeMb')"
                       persistent-hint
-                      messages="0 = aucune limite"></v-text-field>
+                      :messages="t('settings.maxSizeMbHint')"></v-text-field>
         <v-text-field v-model.number="settingsForm.historyMax" type="number" class="mt-3"
-                      label="Actions conservées par boîte" density="comfortable"
+                      :label="t('settings.historyMax')" density="comfortable"
                       :disabled="isForced('historyMax')" :hint="forcedHint('historyMax')"
                       persistent-hint
-                      messages="10 minimum · chaque boîte garde les siennes"></v-text-field>
+                      :messages="t('settings.historyMaxHint')"></v-text-field>
         <v-switch v-model="settingsForm.runOnStart" color="primary" density="compact" class="mt-2"
                   hide-details :disabled="isForced('runOnStart')"
-                  label="Relever au démarrage du conteneur"></v-switch>
+                  :label="t('settings.runOnStart')"></v-switch>
       </v-card-text>
       <v-card-actions>
         <v-spacer></v-spacer>
-        <v-btn variant="text" @click="settingsDialog = false">Annuler</v-btn>
+        <v-btn variant="text" @click="settingsDialog = false">{{ t('common.cancel') }}</v-btn>
         <v-btn color="primary" variant="flat" :loading="saving" @click="saveSettings()">
-          Enregistrer
+          {{ t('common.save') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -547,34 +550,32 @@
   <!-- --------------------------------------------------------- Alertes -->
   <v-dialog v-model="notifyDialog" max-width="720" scrollable>
     <v-card>
-      <v-card-title>Alertes</v-card-title>
+      <v-card-title>{{ t('notify.title') }}</v-card-title>
       <v-card-text>
-        <div class="text-body-2 text-medium-emphasis mb-3">
-          Prévenir quand une relève échoue — et, si vous le souhaitez, à chaque redirection.
-        </div>
+        <div class="text-body-2 text-medium-emphasis mb-3">{{ t('notify.intro') }}</div>
 
         <v-select v-model="notifyForm.events" :items="eventItems" item-title="title"
-                  item-value="value" label="Quand prévenir" multiple chips
+                  item-value="value" :label="t('notify.when')" multiple chips
                   density="comfortable"></v-select>
 
         <v-divider class="my-4"></v-divider>
-        <div class="text-subtitle-2 mb-2">Par e-mail</div>
+        <div class="text-subtitle-2 mb-2">{{ t('notify.byEmail') }}</div>
         <v-select v-model="notifyForm.emailTargetId" :items="targetItemsOptional"
-                  item-title="title" item-value="value" label="Envoyer via la destination"
+                  item-title="title" item-value="value" :label="t('notify.viaTarget')"
                   density="comfortable"></v-select>
-        <v-text-field v-model="notifyForm.emailTo" label="Destinataire" density="comfortable"
-                      hint="Vide = l'adresse de la destination choisie" persistent-hint
+        <v-text-field v-model="notifyForm.emailTo" :label="t('notify.recipient')" density="comfortable"
+                      :hint="t('notify.recipientHint')" persistent-hint
                       class="mb-2"></v-text-field>
 
         <v-divider class="my-4"></v-divider>
         <div class="text-subtitle-2 mb-2">ntfy</div>
         <v-row dense>
           <v-col cols="12" sm="7">
-            <v-text-field v-model="notifyForm.ntfyServer" label="Serveur"
+            <v-text-field v-model="notifyForm.ntfyServer" :label="t('notify.ntfyServer')"
                           density="comfortable"></v-text-field>
           </v-col>
           <v-col cols="12" sm="5">
-            <v-text-field v-model="notifyForm.ntfyTopic" label="Sujet (topic)"
+            <v-text-field v-model="notifyForm.ntfyTopic" :label="t('notify.ntfyTopic')"
                           density="comfortable"></v-text-field>
           </v-col>
         </v-row>
@@ -584,7 +585,7 @@
         <v-text-field v-model="notifyForm.webhookUrl" label="URL" density="comfortable"></v-text-field>
         <v-row dense>
           <v-col cols="6" sm="3">
-            <v-text-field v-model="notifyForm.webhookMethod" label="Méthode"
+            <v-text-field v-model="notifyForm.webhookMethod" :label="t('notify.webhookMethod')"
                           density="comfortable"></v-text-field>
           </v-col>
           <v-col cols="6" sm="9">
@@ -592,19 +593,19 @@
                           density="comfortable"></v-text-field>
           </v-col>
         </v-row>
-        <v-textarea v-model="notifyForm.webhookTemplate" label="Corps" rows="2"
-                    density="comfortable" hint="{{title}} et {{text}} sont remplacés"
+        <v-textarea v-model="notifyForm.webhookTemplate" :label="t('notify.webhookBody')" rows="2"
+                    density="comfortable" :hint="t('notify.webhookBodyHint')"
                     persistent-hint></v-textarea>
 
         <v-divider class="my-4"></v-divider>
-        <div class="text-subtitle-2 mb-2">SMS (API Free Mobile)</div>
+        <div class="text-subtitle-2 mb-2">{{ t('notify.sms') }}</div>
         <v-row dense>
           <v-col cols="12" sm="6">
-            <v-text-field v-model="notifyForm.freeMobileUser" label="Identifiant"
+            <v-text-field v-model="notifyForm.freeMobileUser" :label="t('common.user')"
                           density="comfortable" autocomplete="off"></v-text-field>
           </v-col>
           <v-col cols="12" sm="6">
-            <v-text-field v-model="notifyForm.freeMobilePass" label="Clé" type="password"
+            <v-text-field v-model="notifyForm.freeMobilePass" :label="t('notify.smsKey')" type="password"
                           density="comfortable" autocomplete="new-password"></v-text-field>
           </v-col>
         </v-row>
@@ -612,20 +613,20 @@
         <v-alert v-if="notifyResults.length" variant="tonal" density="compact" class="mt-3"
                  :type="notifyResults.every(r => r.ok) ? 'success' : 'warning'">
           <div v-for="r in notifyResults" :key="r.channel">
-            {{ r.channel }} : {{ r.ok ? 'ok' : 'échec' }} — {{ r.message }}
+            {{ r.channel }} : {{ r.ok ? t('notify.ok') : t('notify.failed') }} — {{ r.message }}
           </div>
         </v-alert>
         <v-alert v-else-if="notifyTested" type="info" variant="tonal" density="compact" class="mt-3">
-          Aucun canal configuré.
+          {{ t('notify.noChannel') }}
         </v-alert>
       </v-card-text>
       <v-card-actions>
         <v-btn variant="text" prepend-icon="mdi-send-outline" :loading="testingForm"
-               @click="testNotify()">Envoyer un test</v-btn>
+               @click="testNotify()">{{ t('notify.sendTest') }}</v-btn>
         <v-spacer></v-spacer>
-        <v-btn variant="text" @click="notifyDialog = false">Fermer</v-btn>
+        <v-btn variant="text" @click="notifyDialog = false">{{ t('common.close') }}</v-btn>
         <v-btn color="primary" variant="flat" :loading="saving" @click="saveNotify()">
-          Enregistrer
+          {{ t('common.save') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -635,13 +636,13 @@
   <v-dialog v-model="historyDialog" max-width="900" scrollable>
     <v-card>
       <v-card-title class="d-flex align-center">
-        <span v-if="historySource">10 dernières actions — {{ historySource.name }}</span>
-        <span v-else>10 dernières actions</span>
+        <span v-if="historySource">{{ t('history.titleFor', { name: historySource.name }) }}</span>
+        <span v-else>{{ t('history.title') }}</span>
         <v-spacer></v-spacer>
         <v-btn variant="text" size="small" icon="mdi-refresh" @click="loadHistory()"></v-btn>
       </v-card-title>
       <v-card-text>
-        <div v-if="!history.length" class="text-medium-emphasis">Aucune relève enregistrée.</div>
+        <div v-if="!history.length" class="text-medium-emphasis">{{ t('history.empty') }}</div>
 
         <v-expansion-panels variant="accordion">
           <v-expansion-panel v-for="h in history" :key="h.id">
@@ -663,8 +664,8 @@
               </v-alert>
 
               <div class="text-caption text-medium-emphasis mb-2">
-                {{ h.total }} nouveau(x) · {{ h.forwarded }} redirigé(s) · {{ h.skipped }} ignoré(s)
-                · {{ h.deleted }} supprimé(s) · {{ (h.durationMs / 1000).toFixed(1) }} s
+                {{ t('history.counts', { total: h.total, forwarded: h.forwarded, skipped: h.skipped,
+                                         deleted: h.deleted, seconds: (h.durationMs / 1000).toFixed(1) }) }}
               </div>
 
               <v-list v-if="h.messages.length" density="compact" class="msg-list" bg-color="transparent">
@@ -673,21 +674,21 @@
                     <v-icon :icon="messageIcon(m.status)" :color="statusColor(messageStatus(m.status))"
                             size="small"></v-icon>
                   </template>
-                  <v-list-item-title>{{ m.subject || '(sans objet)' }}</v-list-item-title>
+                  <v-list-item-title>{{ m.subject || t('history.noSubject') }}</v-list-item-title>
                   <v-list-item-subtitle>
-                    {{ m.from || 'expéditeur inconnu' }}
+                    {{ m.from || t('history.unknownSender') }}
                     <span v-if="m.error" class="text-error"> — {{ m.error }}</span>
                   </v-list-item-subtitle>
                 </v-list-item>
               </v-list>
-              <div v-else class="text-caption text-medium-emphasis">Aucun message traité.</div>
+              <div v-else class="text-caption text-medium-emphasis">{{ t('history.noMessage') }}</div>
             </v-expansion-panel-text>
           </v-expansion-panel>
         </v-expansion-panels>
       </v-card-text>
       <v-card-actions>
         <v-spacer></v-spacer>
-        <v-btn variant="text" @click="historyDialog = false">Fermer</v-btn>
+        <v-btn variant="text" @click="historyDialog = false">{{ t('common.close') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -705,6 +706,29 @@ const { createApp } = Vue;
 const { createVuetify } = Vuetify;
 
 const MASK = '••••••••';
+
+/**
+ * Langues livrées. Chacune est un simple fichier JSON dans `i18n/`, chargé au
+ * démarrage : ajouter une langue ne demande pas de toucher au code.
+ */
+const LANGS = ['fr', 'en', 'es', 'it', 'pt', 'de'];
+
+/** Langue du navigateur, sauf choix explicite déjà mémorisé. */
+const detectLang = () => {
+  const stored = (() => { try { return localStorage.getItem('lang'); } catch { return null; } })();
+  if (stored && LANGS.includes(stored)) return stored;
+  for (const wanted of navigator.languages || [navigator.language || '']) {
+    const code = String(wanted).slice(0, 2).toLowerCase();
+    if (LANGS.includes(code)) return code;
+  }
+  return 'en';
+};
+
+const loadMessages = async (lang) => {
+  const res = await fetch(`i18n/${lang}.json`, { cache: 'no-cache' });
+  if (!res.ok) throw new Error(`traductions ${lang} introuvables`);
+  return res.json();
+};
 
 const emptySource = () => ({
   id: '', name: '', enabled: true, host: '', port: 995, security: 'tls',
@@ -745,6 +769,14 @@ createApp({
     historySource: null,
     now: Date.now(),
 
+    lang: 'fr',
+    messages: {},
+    /** L'interface n'apparaît qu'une fois les traductions là : pas de clés nues. */
+    ready: false,
+    langs: LANGS,
+    /** Chaque langue s'affiche dans la sienne : personne ne cherche « Allemand ». */
+    langNames: { fr: 'Français', en: 'English', es: 'Español', it: 'Italiano', pt: 'Português', de: 'Deutsch' },
+
     sourceDialog: false, targetDialog: false, settingsDialog: false,
     notifyDialog: false, historyDialog: false,
 
@@ -762,42 +794,59 @@ createApp({
     formTest: null,
     snack: { show: false, text: '', color: 'success' },
 
-    securityItems: [
-      { title: 'TLS (995)', value: 'tls' },
-      { title: 'STARTTLS (110)', value: 'starttls' },
-      { title: 'Aucun (110)', value: 'none' },
-    ],
-    smtpSecurityItems: [
-      { title: 'STARTTLS (587)', value: 'starttls' },
-      { title: 'TLS direct (465)', value: 'tls' },
-    ],
-    imapSecurityItems: [
-      { title: 'TLS direct (993)', value: 'tls' },
-      { title: 'STARTTLS (143)', value: 'starttls' },
-    ],
-    refreshModeItems: [
-      { title: 'Réglage global', value: 'global' },
-      { title: 'Personnalisée', value: 'custom' },
-      { title: 'Manuelle uniquement', value: 'off' },
-    ],
-    modeItems: [
-      { title: 'Automatique', value: 'auto' },
-      { title: 'Redirection fidèle', value: 'redirect' },
-      { title: 'Compatible Gmail', value: 'gmail-safe' },
-    ],
-    envelopeItems: [
-      { title: 'Automatique', value: 'auto' },
-      { title: "Expéditeur d'origine", value: 'original' },
-      { title: 'Compte SMTP', value: 'smtp' },
-    ],
-    eventItems: [
-      { title: 'Échec', value: 'error' },
-      { title: 'Redirection réussie', value: 'forward' },
-      { title: 'Chaque relève', value: 'run' },
-    ],
   }),
 
   computed: {
+    securityItems() {
+      return [
+        { title: this.t('security.tlsPop3'), value: 'tls' },
+        { title: this.t('security.starttlsPop3'), value: 'starttls' },
+        { title: this.t('security.nonePop3'), value: 'none' },
+      ];
+    },
+    smtpSecurityItems() {
+      return [
+        { title: this.t('security.starttlsSmtp'), value: 'starttls' },
+        { title: this.t('security.tlsSmtp'), value: 'tls' },
+      ];
+    },
+    imapSecurityItems() {
+      return [
+        { title: this.t('security.tlsImap'), value: 'tls' },
+        { title: this.t('security.starttlsImap'), value: 'starttls' },
+      ];
+    },
+    refreshModeItems() {
+      return [
+        { title: this.t('refreshMode.global'), value: 'global' },
+        { title: this.t('refreshMode.custom'), value: 'custom' },
+        { title: this.t('refreshMode.off'), value: 'off' },
+      ];
+    },
+    modeItems() {
+      return [
+        { title: this.t('mode.auto'), value: 'auto' },
+        { title: this.t('mode.redirect'), value: 'redirect' },
+        { title: this.t('mode.gmailSafe'), value: 'gmail-safe' },
+      ];
+    },
+    envelopeItems() {
+      return [
+        { title: this.t('envelope.auto'), value: 'auto' },
+        { title: this.t('envelope.original'), value: 'original' },
+        { title: this.t('envelope.smtp'), value: 'smtp' },
+      ];
+    },
+    eventItems() {
+      return [
+        { title: this.t('event.error'), value: 'error' },
+        { title: this.t('event.forward'), value: 'forward' },
+        { title: this.t('event.run'), value: 'run' },
+      ];
+    },
+    langItems() {
+      return this.langs.map((code) => ({ title: this.langNames[code] || code, value: code }));
+    },
     sources() { return this.status.config.sources || []; },
     targets() { return this.status.config.targets || []; },
     canRun() { return !this.status.running && this.sources.length > 0; },
@@ -872,17 +921,17 @@ createApp({
     targetSecurityItems() {
       return this.isImap ? this.imapSecurityItems : this.smtpSecurityItems;
     },
-    hostLabel() { return this.isImap ? 'Serveur IMAP' : 'Serveur SMTP'; },
+    hostLabel() { return this.isImap ? 'targets.serverImap' : 'targets.serverSmtp'; },
     hostPlaceholder() { return this.isImap ? 'imap.gmail.com' : 'smtp.gmail.com'; },
-    userLabel() { return this.isImap ? 'Identifiant IMAP' : 'Identifiant SMTP'; },
+    userLabel() { return this.isImap ? 'targets.userImap' : 'targets.userSmtp'; },
     targetItemsOptional() {
-      return [{ title: '— aucune —', value: '' }, ...this.targetItems];
+      return [{ title: this.t('notify.none'), value: '' }, ...this.targetItems];
     },
 
     lastRunLabel() {
-      if (this.status.running) return this.status.runningLabel || 'relève en cours';
+      if (this.status.running) return this.status.runningLabel || this.t('run.running');
       const last = this.status.lastRun;
-      if (!last) return 'jamais relevé';
+      if (!last) return this.t('run.never');
       return `${this.summarize(last)} · ${this.ago(last.at)}`;
     },
     lastRunColor() {
@@ -898,23 +947,50 @@ createApp({
     },
     nextRunLabel() {
       const next = this.status.nextRunAt;
-      if (!next) return 'automatique désactivé';
+      if (!next) return this.t('freq.autoOff');
       const delta = Math.round((new Date(next).getTime() - this.now) / 1000);
-      if (delta <= 0) return 'imminent';
-      if (delta < 60) return `dans ${delta} s`;
-      return `dans ${Math.round(delta / 60)} min`;
+      if (delta <= 0) return this.t('freq.imminent');
+      if (delta < 60) return this.t('freq.inSeconds', { n: delta });
+      return this.t('freq.inMinutes', { n: Math.round(delta / 60) });
     },
     modeHelp() {
       const mode = this.targetForm.headerMode === 'auto'
         ? (this.isGmail(this.targetForm.host) ? 'gmail-safe' : 'redirect')
         : this.targetForm.headerMode;
-      return mode === 'redirect'
-        ? "Le message repart intact : expéditeur, signature et pièces jointes d'origine. À réserver aux serveurs qui acceptent d'expédier au nom d'un tiers."
-        : "Gmail réécrit de toute façon l'expéditeur : on le fait proprement en affichant « Nom d'origine (via la boîte) » et en plaçant l'expéditeur réel en Répondre-à.";
+      return this.t(mode === 'redirect' ? 'mode.redirectHelp' : 'mode.gmailSafeHelp');
     },
   },
 
   methods: {
+    // --- Traduction ---------------------------------------------------------
+
+    /**
+     * Rend le texte de la clé, avec ses paramètres substitués. Une clé absente
+     * ressort telle quelle : mieux vaut un libellé technique qu'un trou.
+     */
+    t(key, params) {
+      let text = this.messages[key];
+      if (text === undefined) return key;
+      if (params) {
+        for (const [name, value] of Object.entries(params)) {
+          text = text.split(`{${name}}`).join(String(value));
+        }
+      }
+      return text;
+    },
+
+    async setLang(lang) {
+      if (!this.langs.includes(lang)) return;
+      try {
+        this.messages = await loadMessages(lang);
+        this.lang = lang;
+        document.documentElement.lang = lang;
+        try { localStorage.setItem('lang', lang); } catch { /* mode privé */ }
+      } catch (err) {
+        this.toast(err.message, 'error');
+      }
+    },
+
     // --- Chargement ---------------------------------------------------------
     async refresh() {
       try {
@@ -962,7 +1038,7 @@ createApp({
       }
     },
     async markSeen(source) {
-      if (!confirm(`Marquer tout le contenu actuel de « ${source.name} » comme déjà traité ?\n\nCes messages ne seront jamais redirigés.`)) return;
+      if (!confirm(this.t('sources.markSeenConfirm', { name: source.name }))) return;
       try {
         const res = await api('POST', `/api/sources/${source.id}/seen`);
         this.toast(res.message, res.ok ? 'success' : 'error');
@@ -997,7 +1073,7 @@ createApp({
         // La vérification est faite à l'enregistrement : inutile de penser à
         // cliquer « Tester » pour découvrir qu'un mot de passe est faux.
         this.toast(
-          res.test.ok ? `Enregistré — ${res.test.message}` : `Enregistré, mais : ${res.test.message}`,
+          this.t(res.test.ok ? 'saved.ok' : 'saved.warning', { message: res.test.message }),
           res.test.ok ? 'success' : 'warning',
         );
       } catch (err) {
@@ -1007,10 +1083,10 @@ createApp({
       }
     },
     async removeSource(source) {
-      if (!confirm(`Supprimer « ${source.name} » ?`)) return;
+      if (!confirm(this.t('sources.deleteConfirm', { name: source.name }))) return;
       await api('DELETE', `/api/sources/${source.id}`);
       await this.refresh();
-      this.toast('Boîte supprimée');
+      this.toast(this.t('sources.deleted'));
     },
     async testSource(source) {
       this.testing = source.id;
@@ -1069,7 +1145,7 @@ createApp({
         this.targetDialog = false;
         await this.refresh();
         this.toast(
-          res.test.ok ? `Enregistré — ${res.test.message}` : `Enregistré, mais : ${res.test.message}`,
+          this.t(res.test.ok ? 'saved.ok' : 'saved.warning', { message: res.test.message }),
           res.test.ok ? 'success' : 'warning',
         );
       } catch (err) {
@@ -1103,26 +1179,29 @@ createApp({
 
       if (result === 'ok') {
         const name = params.get('name');
-        this.toast(`Compte Google connecté${name ? ` pour « ${name} »` : ''}`, 'success');
+        this.toast(name ? this.t('oauth.successFor', { name }) : this.t('oauth.success'), 'success');
       } else {
-        this.toast(`Autorisation Google refusée : ${params.get('message') || 'erreur inconnue'}`, 'error');
+        this.toast(
+          this.t('oauth.refused', { message: params.get('message') || this.t('oauth.unknownError') }),
+          'error',
+        );
       }
       window.history.replaceState({}, '', window.location.pathname);
     },
     async copy(text) {
       try {
         await navigator.clipboard.writeText(text || '');
-        this.toast('Copié');
+        this.toast(this.t('common.copied'));
       } catch {
-        this.toast('Copie impossible : sélectionnez le texte à la main', 'warning');
+        this.toast(this.t('common.copyFailed'), 'warning');
       }
     },
     async removeTarget(target) {
-      if (!confirm(`Supprimer « ${target.name} » ?`)) return;
+      if (!confirm(this.t('targets.deleteConfirm', { name: target.name }))) return;
       try {
         await api('DELETE', `/api/targets/${target.id}`);
         await this.refresh();
-        this.toast('Destination supprimée');
+        this.toast(this.t('targets.deleted'));
       } catch (err) {
         this.toast(err.message, 'error');
       }
@@ -1161,7 +1240,7 @@ createApp({
         await api('PUT', '/api/settings', this.settingsForm);
         this.settingsDialog = false;
         await this.refresh();
-        this.toast('Réglages enregistrés');
+        this.toast(this.t('settings.saved'));
       } catch (err) {
         this.toast(err.message, 'error');
       } finally {
@@ -1179,7 +1258,7 @@ createApp({
       try {
         await api('PUT', '/api/notify', this.notifyForm);
         await this.refresh();
-        this.toast('Alertes enregistrées');
+        this.toast(this.t('notify.saved'));
       } catch (err) {
         this.toast(err.message, 'error');
       } finally {
@@ -1202,22 +1281,22 @@ createApp({
     },
     isForced(key) { return Boolean(this.status.forced[key]); },
     forcedHint(key) {
-      return this.isForced(key) ? `imposé par ${this.status.forced[key]} dans le .env` : '';
+      return this.isForced(key) ? this.t('settings.forced', { name: this.status.forced[key] }) : '';
     },
 
     // --- Affichage ----------------------------------------------------------
     targetName(id) {
       const target = this.targets.find((t) => t.id === id);
-      return target ? target.name : 'destination manquante';
+      return target ? target.name : this.t('targets.missing');
     },
     modeOf(target) {
       return this.status.resolvedModes[target.id]
         || (target.kind === 'smtp' ? 'redirect' : target.kind);
     },
     modeLabel(mode) {
-      if (mode === 'imap') return 'dépôt direct';
-      if (mode === 'gmail-api') return 'import Gmail, filtres actifs';
-      return mode === 'redirect' ? 'redirection fidèle' : 'compatible Gmail';
+      if (mode === 'imap') return this.t('modeChip.imap');
+      if (mode === 'gmail-api') return this.t('modeChip.gmailApi');
+      return this.t(mode === 'redirect' ? 'modeChip.redirect' : 'modeChip.gmailSafe');
     },
     targetIcon(target) {
       if (target.kind === 'gmail-api' || this.isGmail(target.host)) return 'mdi-gmail';
@@ -1225,39 +1304,43 @@ createApp({
     },
     /** Ce que la carte affiche sous le nom : la boîte réellement visée. */
     targetBox(target) {
-      if (target.kind === 'gmail-api') return target.to || 'compte Google autorisé';
+      if (target.kind === 'gmail-api') return target.to || this.t('targets.googleAccount');
       if (target.kind !== 'imap') return target.to;
       const box = target.to || target.user;
       const folder = target.folder || 'INBOX';
       return box ? `${box} · ${folder}` : folder;
     },
     isGmail(host) { return /(^|\.)(gmail|googlemail)\.com$/i.test((host || '').trim()); },
-    securityLabel(s) { return s === 'tls' ? 'TLS' : s === 'starttls' ? 'STARTTLS' : 'non chiffré'; },
+    securityLabel(s) {
+      return this.t(s === 'tls' ? 'security.tls' : s === 'starttls' ? 'security.starttls' : 'security.none');
+    },
     securityIcon(s) { return s === 'none' ? 'mdi-lock-open-variant-outline' : 'mdi-lock-outline'; },
 
     frequencyLabel(source) {
       const minutes = source.refreshMinutes ?? this.status.config.settings.refreshMinutes;
-      if (!minutes) return 'manuelle';
-      const own = source.refreshMinutes !== null ? '' : ' (global)';
+      if (!minutes) return this.t('freq.manual');
+      const own = source.refreshMinutes !== null ? '' : this.t('freq.global');
       return minutes >= 60
-        ? `${Math.round(minutes / 60)} h${own}`
-        : `${minutes} min${own}`;
+        ? this.t('freq.hours', { n: Math.round(minutes / 60) }) + own
+        : this.t('freq.minutes', { n: minutes }) + own;
     },
     nextRunFor(source) {
       const at = (this.status.nextRuns || {})[source.id];
       if (!at) return '';
       const delta = Math.round((new Date(at).getTime() - this.now) / 1000);
-      if (delta <= 0) return 'imminent';
-      return delta < 60 ? `dans ${delta} s` : `dans ${Math.round(delta / 60)} min`;
+      if (delta <= 0) return this.t('freq.imminent');
+      return delta < 60
+        ? this.t('freq.inSeconds', { n: delta })
+        : this.t('freq.inMinutes', { n: Math.round(delta / 60) });
     },
     lastFor(sourceId) {
       return (this.status.lastRuns || {})[sourceId] || null;
     },
     summarize(entry) {
-      if (entry.status === 'error' && !entry.forwarded) return 'échec';
-      const bits = [`${entry.forwarded} redirigé(s)`];
-      if (entry.skipped) bits.push(`${entry.skipped} ignoré(s)`);
-      if (entry.status === 'partial') bits.push('erreurs');
+      if (entry.status === 'error' && !entry.forwarded) return this.t('run.failed');
+      const bits = [this.t('run.forwarded', { n: entry.forwarded })];
+      if (entry.skipped) bits.push(this.t('run.skipped', { n: entry.skipped }));
+      if (entry.status === 'partial') bits.push(this.t('run.errors'));
       return bits.join(', ');
     },
     statusColor(status) {
@@ -1284,15 +1367,18 @@ createApp({
           : 'mdi-email-alert-outline';
     },
     triggerLabel(trigger) {
-      return trigger === 'manual' ? 'manuel' : trigger === 'startup' ? 'démarrage' : 'planifié';
+      return this.t(
+        trigger === 'manual' ? 'trigger.manual' : trigger === 'startup' ? 'trigger.startup' : 'trigger.schedule',
+      );
     },
-    formatDate(iso) { return new Date(iso).toLocaleString('fr-FR'); },
+    /** La date suit la langue choisie, pas celle du système. */
+    formatDate(iso) { return new Date(iso).toLocaleString(this.lang); },
     ago(iso) {
       const seconds = Math.max(0, Math.round((this.now - new Date(iso).getTime()) / 1000));
-      if (seconds < 60) return "à l'instant";
-      if (seconds < 3600) return `il y a ${Math.round(seconds / 60)} min`;
-      if (seconds < 86400) return `il y a ${Math.round(seconds / 3600)} h`;
-      return `il y a ${Math.round(seconds / 86400)} j`;
+      if (seconds < 60) return this.t('ago.now');
+      if (seconds < 3600) return this.t('ago.minutes', { n: Math.round(seconds / 60) });
+      if (seconds < 86400) return this.t('ago.hours', { n: Math.round(seconds / 3600) });
+      return this.t('ago.days', { n: Math.round(seconds / 86400) });
     },
     toast(text, color = 'success') {
       this.snack = { show: true, text, color };
@@ -1300,6 +1386,10 @@ createApp({
   },
 
   async mounted() {
+    // Les traductions d'abord : l'interface ne s'affiche qu'une fois prêtes.
+    await this.setLang(detectLang());
+    this.ready = true;
+
     await this.refresh();
     // Au retour de Google, l'URL porte le résultat de l'autorisation.
     this.readOauthResult();

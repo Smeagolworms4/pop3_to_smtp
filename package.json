@@ -1,6 +1,6 @@
 {
   "name": "pop3-to-smtp",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Relève des boîtes POP3 et redirige les messages vers Gmail (dépôt IMAP direct ou n'importe quel SMTP), en gardant l'expéditeur d'origine",
   "license": "MIT",
   "author": "Damien Duboeuf <smeagolworms4@gmail.com>",

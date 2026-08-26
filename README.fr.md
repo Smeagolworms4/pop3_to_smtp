@@ -32,6 +32,8 @@ depuis une interface web.
   une fois remis.
 - **Réglages par boîte** : chacune a son propre délai de relève et son propre plafond
   par passage, ou suit simplement les réglages globaux.
+- **Interface en six langues** — français, anglais, espagnol, italien, portugais, allemand.
+  Celle du navigateur est prise par défaut, et se change d'un clic dans la barre du haut.
 - **Interface web** (port 8080, Vue 3 + Vuetify) : ajout des boîtes et des destinations,
   relève forcée, état de la dernière action **de chaque boîte** — et un clic ouvre son
   historique propre, message par message, erreurs comprises.
@@ -266,6 +268,20 @@ les rapports de non-remise. Le mode automatique prend l'expéditeur d'origine en
 redirection fidèle, et le compte SMTP en mode compatible Gmail — ce qu'exigent les
 relais authentifiés. Les deux peuvent être forcés.
 
+### Langues
+
+L'interface est livrée en **français, anglais, espagnol, italien, portugais et allemand**.
+Celle du navigateur est choisie au démarrage ; le sélecteur de la barre du haut permet d'en
+changer, et le choix est retenu pour les visites suivantes.
+
+Chaque langue est un simple fichier JSON dans `src/web/public/i18n/`. En ajouter une revient
+à copier `fr.json`, le traduire, et déclarer son code dans la liste `LANGS` d'`index.html` —
+aucun outil de compilation, aucune dépendance.
+
+Les messages venant du serveur (résultats des tests de connexion, erreurs de relève) restent
+en français : ils traversent l'API et l'historique, et les traduire demanderait de les
+transporter sous forme de codes plutôt que de phrases.
+
 ## Configuration
 
 Les boîtes, les destinations et les préférences vivent dans `data/config.json` et se
@@ -348,6 +364,7 @@ src/
   notify/notify.service.ts  e-mail / ntfy / webhook / SMS
   api/api.controller.ts   l'API REST
   web/public/index.html   toute l'interface, en un fichier, sans étape de build
+  web/public/i18n/*.json  les traductions, une langue par fichier
 ```
 
 Le client POP3 est écrit à la main, volontairement. Le protocole tient en dix commandes
@@ -365,7 +382,7 @@ CDN change ses URL.
 npm test
 ```
 
-79 tests, sans accès réseau : un faux serveur POP3, un faux serveur IMAP, un faux Google
+88 tests, sans accès réseau : un faux serveur POP3, un faux serveur IMAP, un faux Google
 et un vrai serveur SMTP (`smtp-server`) sont démarrés à la volée. Ils couvrent la préservation octet
 pour octet d'un message 8 bits, le dot-stuffing, les en-têtes repliés, le décodage
 RFC 2047, les deux modes d'en-têtes, le dépôt IMAP (littéral, drapeaux, date interne,
@@ -373,7 +390,8 @@ création du dossier, noms en UTF-7 modifié), l'import par l'API Gmail (échang
 cache et péremption du jeton, autorisation révoquée, message octet pour octet), l'absence
 de doublon entre deux relèves, le
 mode déplacement, un refus SMTP ou IMAP qui laisse le message en place, les messages trop
-gros, les relèves simultanées, et la persistance après redémarrage.
+gros, les relèves simultanées, la persistance après redémarrage — et les traductions : mêmes
+clés dans les six langues, aucune restée en français, aucun libellé en dur dans le gabarit.
 
 Ils tournent à chaque push via GitHub Actions, sur Node 22 et 24.
 

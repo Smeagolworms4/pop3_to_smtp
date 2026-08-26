@@ -74,7 +74,9 @@ function startFakeImap(options = {}) {
           reply(`${tag} OK dossier créé`);
         } else if (command === 'APPEND') {
           const parsed = parseAppend(rest.join(' '));
-          if (!folders.has(parsed.folder)) {
+          if (options.refuseAppend) {
+            reply(`${tag} NO quota dépassé`);
+          } else if (!folders.has(parsed.folder)) {
             reply(`${tag} NO [TRYCREATE] dossier inconnu`);
           } else {
             literal = { tag, ...parsed };

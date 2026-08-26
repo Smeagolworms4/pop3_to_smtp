@@ -484,3 +484,55 @@ test('destination API Gmail : le message est importé sans réécriture', async 
   assert.equal(getHeader(head, 'Delivered-To'), 'moi@gmail.com');
   assert.match(body.toString('latin1'), /Bonjour, voici la facture\./);
 });
+
+test('dépôt refusé en mode déplacement : la boîte source garde le message', async (t) => {
+  // Le cas qui coûte cher : on supprime la source alors que rien n'est arrivé.
+  const pop3 = await startFakePop3({ messages: [MESSAGE_1, MESSAGE_2] });
+  const imap = await startFakeImap({ refuseAppend: true });
+  t.after(async () => {
+    await pop3.close();
+    await imap.close();
+  });
+
+  const { forwarder } = await buildStack(pop3.port, 0, {
+    target: { kind: 'imap', port: imap.port, secure: false, user: 'moi@gmail.com', pass: 'x', to: '' },
+    source: { deleteAfterFetch: true },
+  });
+
+  const entry = await forwarder.runSource('s1', 'manual');
+
+  assert.equal(entry.status, 'error');
+  assert.equal(entry.forwarded, 0);
+  assert.equal(entry.deleted, 0, 'aucun DELE ne doit partir');
+  assert.equal(imap.state.appended.length, 0);
+
+  // Le serveur POP3 n'a reçu aucune suppression, et tout est encore là.
+  assert.deepEqual(pop3.state.deleted, []);
+  assert.equal(pop3.messages.filter((m) => m.deleted).length, 0);
+
+  // Et rien n'a été marqué comme traité : les deux repassent au tour suivant.
+  const retry = await forwarder.runSource('s1', 'manual');
+  assert.equal(retry.total, 2);
+});
+
+test('dépôt accepté en mode déplacement : la source n’est vidée qu’après', async (t) => {
+  const pop3 = await startFakePop3({ messages: [MESSAGE_1] });
+  const imap = await startFakeImap({});
+  t.after(async () => {
+    await pop3.close();
+    await imap.close();
+  });
+
+  const { forwarder } = await buildStack(pop3.port, 0, {
+    target: { kind: 'imap', port: imap.port, secure: false, user: 'moi@gmail.com', pass: 'x', to: '' },
+    source: { deleteAfterFetch: true },
+  });
+
+  const entry = await forwarder.runSource('s1', 'manual');
+  assert.equal(entry.forwarded, 1);
+  assert.equal(entry.deleted, 1);
+
+  // Le message est arrivé à destination, ET seulement ensuite supprimé.
+  assert.equal(imap.state.appended.length, 1);
+  assert.deepEqual(pop3.state.deleted, ['uid-1']);
+});

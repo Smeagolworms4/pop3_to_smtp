@@ -32,6 +32,8 @@ configured entirely from a web interface.
   have been delivered.
 - **Per-mailbox settings**: each mailbox has its own collection interval and its own
   per-pass cap, or simply follows the global ones.
+- **Interface in six languages** — French, English, Spanish, Italian, Portuguese, German.
+  The browser's language is picked by default, and one click in the top bar changes it.
 - **Web interface** (port 8080, Vue 3 + Vuetify): add mailboxes and destinations,
   force a refresh, see the state of the last action **of each mailbox**, and open its
   own history — message by message, errors included.
@@ -261,6 +263,20 @@ The envelope sender (`MAIL FROM`) is what SPF checks and where bounces go. Autom
 mode uses the original sender in faithful mode, and the SMTP account in Gmail-compatible
 mode — which is what authenticated relays require. You can force either.
 
+### Languages
+
+The interface ships in **French, English, Spanish, Italian, Portuguese and German**. The
+browser's language is picked at startup; the selector in the top bar changes it, and the
+choice is remembered for later visits.
+
+Each language is a plain JSON file under `src/web/public/i18n/`. Adding one means copying
+`fr.json`, translating it, and listing its code in the `LANGS` array in `index.html` — no
+build tool, no dependency.
+
+Messages coming from the server (connection test results, collection errors) stay in French:
+they travel through the API and the history, and translating them would mean carrying codes
+around instead of sentences.
+
 ## Configuration
 
 Mailboxes, destinations and preferences live in `data/config.json` and are edited from
@@ -344,6 +360,7 @@ src/
   notify/notify.service.ts  e-mail / ntfy / webhook / SMS
   api/api.controller.ts   the REST API
   web/public/index.html   the whole interface, in one file, no build step
+  web/public/i18n/*.json  the translations, one language per file
 ```
 
 The POP3 client is hand-written on purpose. The protocol is ten commands and has not
@@ -361,14 +378,15 @@ changes its URLs.
 npm test
 ```
 
-79 tests, no network access needed: a fake POP3 server, a fake IMAP server, a fake Google
+88 tests, no network access needed: a fake POP3 server, a fake IMAP server, a fake Google
 and a real SMTP server (`smtp-server`) are started on the fly. They cover byte-for-byte preservation
 of an 8-bit message, dot-stuffing, folded headers, RFC 2047 decoding, both header modes,
 the IMAP drop (literal, flags, internal date, folder creation, modified UTF-7 names), the
 Gmail API import (code exchange, token caching and expiry, revoked authorization,
 byte-for-byte message), absence of duplicates across two collections, move mode, an SMTP or IMAP rejection
-leaving the message in place, oversized messages, concurrent collections, and persistence
-across a restart.
+leaving the message in place, oversized messages, concurrent collections, persistence across a restart — and the
+translations: same keys in all six languages, none left in French, no hard-coded label in
+the template.
 
 They run on every push through GitHub Actions, on Node 22 and 24.
 
