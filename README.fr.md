@@ -19,10 +19,11 @@ depuis une interface web.
 - **Relève** autant de boîtes POP3 que vous voulez, au rythme que vous choisissez.
 - **Redirige** chaque message vers la destination de votre choix — une destination par
   boîte, autant de destinations que nécessaire.
-- **Deux façons de livrer** : le **dépôt IMAP**, qui range le message dans la boîte sans
-  passer par le moindre serveur d'envoi, ou l'**envoi SMTP** classique. Le premier est le
-  seul où Gmail n'affiche pas les messages relevés comme envoyés par vous (voir
-  *[Le dépôt IMAP](#le-dépôt-imap--le-message-intact-même-chez-gmail)*).
+- **Trois façons de livrer** : le **dépôt IMAP**, qui range le message dans la boîte sans
+  passer par le moindre serveur d'envoi ; l'**API Gmail**, qui l'importe en le faisant
+  passer par vos filtres ; ou l'**envoi SMTP** classique. Les deux premières sont les
+  seules où Gmail n'affiche pas les messages relevés comme envoyés par vous (voir
+  *[Trois façons de livrer](#trois-façons-de-livrer)*).
 - **Garde le message d'origine intact** : expéditeur, objet, date, `Message-ID`, fil de
   discussion, pièces jointes, et jusqu'à la signature DKIM. Dans Gmail, ça se lit comme
   une vraie redirection, pas comme une copie fabriquée par un robot (voir
@@ -137,6 +138,20 @@ partent tels quels vers le SMTP. Deux règles le permettent :
 À cela s'ajoutent les en-têtes de traçage qu'un vrai serveur de mail poserait
 (`Delivered-To`, `Received`, `X-Forwarded-To`, `X-Forwarded-For`).
 
+### Trois façons de livrer
+
+|  | Envoi SMTP | Dépôt IMAP | API Gmail |
+|---|---|---|---|
+| Expéditeur d'origine | réécrit par Gmail | **conservé** | **conservé** |
+| Signature DKIM | cassée en mode compatible | **intacte** | **intacte** |
+| Affiché comme « moi » dans Gmail | oui | **non** | **non** |
+| Filtres, catégories, antispam | oui | non | **oui** |
+| Authentification | mot de passe du compte | mot de passe d'application | OAuth (une fois) |
+| Serveurs compatibles | tous | tous | Gmail seulement |
+
+Le dépôt IMAP est le plus simple et marche partout ; l'API Gmail y ajoute les filtres, au
+prix d'une mise en place chez Google. Les deux laissent le message intact.
+
 ### Le dépôt IMAP : le message intact, même chez Gmail
 
 Une destination peut être de deux types : **envoi SMTP** ou **dépôt IMAP**. Le second
@@ -165,10 +180,46 @@ une boîte relevée d'un coup se range donc dans le bon ordre.
 Seule chose à savoir : un message déposé ne passe pas par les filtres de Gmail. Ni par
 l'antispam, ni par vos règles de tri — il atterrit directement dans le dossier choisi.
 
+### L'API Gmail : intact, et passé par vos filtres
+
+Un message déposé en IMAP ne traverse aucune chaîne de livraison : il atterrit dans le
+dossier choisi sans que vos règles de tri, le classement par catégorie ou l'antispam
+n'aient leur mot à dire. Pour la plupart des usages c'est très bien — mais si vous avez
+construit vos filtres Gmail au fil des années, ils resteront muets.
+
+L'API Gmail règle exactement ça. `users.messages.import` est décrit par Google comme un
+« *standard email delivery scanning and classification similar to receiving via SMTP* » :
+le message passe par la moulinette de livraison, donc **vos filtres s'appliquent**, les
+catégories aussi, et l'antispam également (une option permet de le désarmer). Et comme
+rien n'est réexpédié, le `From:` d'origine reste en place — c'est le dépôt IMAP avec les
+filtres en plus.
+
+Le prix à payer est OAuth. À faire une fois :
+
+1. **[console.cloud.google.com](https://console.cloud.google.com/)** → créez un projet.
+2. *API et services* → *Bibliothèque* → activez **Gmail API**.
+3. *Écran d'autorisation OAuth* : type **Externe**, nom d'application et e-mail de
+   contact. **Publiez l'application** (bouton *Publier*, statut *En production*) :
+   laissée en *Test*, Google fait expirer l'autorisation au bout de **7 jours**.
+4. *Identifiants* → *Créer des identifiants* → *ID client OAuth* → type **Application
+   Web**. Dans *URI de redirection autorisés*, collez l'adresse que l'interface affiche
+   dans le formulaire (`https://votre-instance/api/oauth/callback`) — Google la compare
+   au caractère près.
+5. Dans l'interface : type **API Gmail**, collez l'identifiant et le secret du client,
+   puis **Connecter le compte Google**. L'écran d'avertissement « application non
+   vérifiée » est normal : *Paramètres avancés* → *Accéder à …*.
+
+L'application ne demande qu'un seul droit, `gmail.insert` : ajouter des messages. Elle ne
+peut ni lire votre courrier, ni en envoyer. Le jeton obtenu ne périme pas, sauf si vous
+changez le mot de passe de votre compte Google, révoquez l'accès, ou laissez l'écran de
+consentement en *Test* — dans tous les cas l'interface affiche l'erreur et il suffit de
+recliquer sur *Connecter*.
+
 ### Deux modes d'en-têtes, et pourquoi
 
-Ces modes ne concernent que l'**envoi SMTP** : un dépôt IMAP ne réécrit jamais rien, et
-l'interface masque d'ailleurs ces réglages quand la destination en est un.
+Ces modes ne concernent que l'**envoi SMTP** : ni le dépôt IMAP ni l'API Gmail ne
+réécrivent quoi que ce soit, et l'interface masque d'ailleurs ces réglages quand la
+destination est de l'un de ces deux types.
 
 | Mode | Ce qu'il fait | Quand |
 |---|---|---|
@@ -188,8 +239,8 @@ le nom de l'expéditeur reste visible, son adresse part dans `X-Original-From`, 
 se regroupent normalement.
 
 > **Si vous voulez la version intacte avec une destination Gmail**, prenez une
-> destination de type **dépôt IMAP** : c'est fait pour ça, et il n'y a rien d'autre à
-> configurer. À défaut, n'envoyez pas *via* Gmail mais *vers* l'adresse Gmail en passant
+> destination de type **dépôt IMAP** — ou **API Gmail** si vous tenez à vos filtres.
+> C'est fait pour ça, et il n'y a rien d'autre à configurer côté messages. À défaut, n'envoyez pas *via* Gmail mais *vers* l'adresse Gmail en passant
 > par un autre SMTP (celui de votre FAI, un relais que vous hébergez, un service
 > transactionnel) en mode *Redirection fidèle* — en gardant en tête que le DMARC de
 > l'expéditeur d'origine s'appliquera : `p=reject` (LinkedIn, les banques, la plupart des
@@ -269,6 +320,7 @@ src/
   mail/
     pop3.ts               client POP3 (RFC 1939), écrit à la main, sans dépendance
     imap.ts               client IMAP (RFC 3501), réduit au dépôt : LOGIN, APPEND, STATUS
+    gmail-api.ts          OAuth Google et users.messages.import : la livraison avec filtres
     rewrite.ts            traitement des en-têtes : le cœur de la fidélité
     headers.ts            manipulation RFC 5322 au niveau octet, décodage RFC 2047
     smtp.service.ts       nodemailer, envoi brut avec enveloppe explicite
@@ -294,11 +346,13 @@ CDN change ses URL.
 npm test
 ```
 
-67 tests, sans accès réseau : un faux serveur POP3, un faux serveur IMAP et un vrai
-serveur SMTP (`smtp-server`) sont démarrés à la volée. Ils couvrent la préservation octet
+79 tests, sans accès réseau : un faux serveur POP3, un faux serveur IMAP, un faux Google
+et un vrai serveur SMTP (`smtp-server`) sont démarrés à la volée. Ils couvrent la préservation octet
 pour octet d'un message 8 bits, le dot-stuffing, les en-têtes repliés, le décodage
 RFC 2047, les deux modes d'en-têtes, le dépôt IMAP (littéral, drapeaux, date interne,
-création du dossier, noms en UTF-7 modifié), l'absence de doublon entre deux relèves, le
+création du dossier, noms en UTF-7 modifié), l'import par l'API Gmail (échange du code,
+cache et péremption du jeton, autorisation révoquée, message octet pour octet), l'absence
+de doublon entre deux relèves, le
 mode déplacement, un refus SMTP ou IMAP qui laisse le message en place, les messages trop
 gros, les relèves simultanées, et la persistance après redémarrage.
 

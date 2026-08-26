@@ -24,7 +24,7 @@ export type EnvelopeFrom = 'auto' | 'original' | 'smtp';
  *   serveur d'envoi n'est traversé : le message arrive exactement tel qu'il
  *   était, expéditeur et signature DKIM d'origine compris.
  */
-export type TargetKind = 'smtp' | 'imap';
+export type TargetKind = 'smtp' | 'imap' | 'gmail-api';
 
 /** Une destination : un serveur (SMTP ou IMAP) + l'endroit où déposer. */
 export interface Target {
@@ -49,6 +49,22 @@ export interface Target {
   folder: string;
   /** Déposer le message déjà lu (mode `imap`). */
   markRead: boolean;
+  /**
+   * Identifiants OAuth du client Google (mode `gmail-api`). Ils viennent de la
+   * console Google Cloud et n'ont rien de secret pour l'utilisateur — c'est le
+   * jeton de rafraîchissement, obtenu au bout du parcours d'autorisation, qui
+   * donne réellement accès à la boîte.
+   */
+  oauthClientId: string;
+  oauthClientSecret: string;
+  /** Vide = le compte n'a pas encore été connecté. */
+  oauthRefreshToken: string;
+  /**
+   * Empêcher Gmail de classer un message importé en spam. À n'activer que si
+   * des messages légitimes finissent au mauvais endroit : le filtre antispam
+   * est précisément l'un des intérêts de ce mode.
+   */
+  neverMarkSpam: boolean;
   /**
    * Adresse affichée en From quand on est obligé de la réécrire (mode
    * gmail-safe). Vide = on prend `user`.

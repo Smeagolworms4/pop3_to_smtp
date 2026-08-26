@@ -84,14 +84,22 @@ test('aucune propriété du composant ne porte deux noms différents', () => {
   assert.deepEqual(duplicates, [], `déclarés plusieurs fois : ${duplicates.join(', ')}`);
 });
 
+/**
+ * Liens d'aide : ils s'ouvrent dans un nouvel onglet quand l'utilisateur clique
+ * dessus, rien n'est chargé depuis la page. Tout le reste doit venir de
+ * `node_modules`.
+ */
+const HELP_LINKS = [
+  'https://myaccount.google.com/',
+  'https://console.cloud.google.com/',
+];
+
 test('aucune ressource externe n’est référencée', () => {
   // L'interface doit fonctionner sans accès à Internet : tout vient de
-  // node_modules, servi par l'application elle-même. Seul le lien d'aide vers
-  // les mots de passe d'application Google sort, et c'est un lien cliquable,
-  // pas une ressource chargée.
+  // node_modules, servi par l'application elle-même.
   const loaded = [...HTML.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)]
     .map((m) => m[1])
-    .filter((url) => !url.startsWith('https://myaccount.google.com/'));
+    .filter((url) => !HELP_LINKS.some((allowed) => url.startsWith(allowed)));
 
   assert.deepEqual(loaded, []);
 });
@@ -99,4 +107,6 @@ test('aucune ressource externe n’est référencée', () => {
 test('l’aide Gmail pointe vers la bonne page', () => {
   assert.match(HTML, /https:\/\/myaccount\.google\.com\/apppasswords/);
   assert.match(HTML, /mot de passe d'application/i);
+  // L'API Gmail se configure ailleurs : dans la console Google Cloud.
+  assert.match(HTML, /https:\/\/console\.cloud\.google\.com\/apis\/credentials/);
 });

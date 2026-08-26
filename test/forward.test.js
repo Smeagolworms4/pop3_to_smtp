@@ -13,6 +13,7 @@ process.env.RUN_ON_START = 'false';
 const { SMTPServer } = require('smtp-server');
 const { startFakePop3 } = require('./fake-pop3');
 const { startFakeImap } = require('./fake-imap');
+const { startFakeGoogle } = require('./fake-google');
 
 const { StoreService } = require('../dist/store/store.service');
 const { SmtpService } = require('../dist/mail/smtp.service');
@@ -452,4 +453,34 @@ test('destination IMAP : une panne du serveur laisse le message à relever', asy
   // Rien n'a été marqué comme traité : le message repasse au tour suivant.
   const retry = await forwarder.runSource('s1', 'manual');
   assert.equal(retry.total, 1);
+});
+
+test('destination API Gmail : le message est importé sans réécriture', async (t) => {
+  const pop3 = await startFakePop3({ messages: [MESSAGE_1] });
+  const google = await startFakeGoogle();
+  t.after(async () => {
+    await pop3.close();
+    await google.close();
+  });
+
+  const { forwarder } = await buildStack(pop3.port, 0, {
+    target: {
+      kind: 'gmail-api', to: 'moi@gmail.com',
+      oauthClientId: 'client-1', oauthClientSecret: 'secret-1', oauthRefreshToken: 'refresh-1',
+      neverMarkSpam: false,
+      // Comme pour l'IMAP : rien à réécrire, quel que soit le réglage.
+      headerMode: 'gmail-safe',
+    },
+  });
+
+  const entry = await forwarder.runSource('s1', 'manual');
+  assert.equal(entry.status, 'ok');
+  assert.equal(entry.forwarded, 1);
+  assert.equal(google.state.imports.length, 1);
+
+  const { head, body } = splitMessage(google.state.imports[0].body);
+  assert.equal(getHeader(head, 'From'), 'Jean Dupont <jean@exemple.fr>');
+  assert.equal(getHeader(head, 'X-Original-From'), undefined);
+  assert.equal(getHeader(head, 'Delivered-To'), 'moi@gmail.com');
+  assert.match(body.toString('latin1'), /Bonjour, voici la facture\./);
 });

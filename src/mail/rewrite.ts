@@ -50,11 +50,12 @@ const GMAIL_HOSTS = /(^|\.)(gmail|googlemail)\.com$|(^|\.)smtp\.google\.com$/i;
  * correspond pas au compte authentifié : garder l'expéditeur d'origine est
  * impossible, autant le faire nous-mêmes proprement plutôt que de le subir.
  *
- * Un dépôt IMAP échappe à tout ça : rien n'est envoyé, donc rien ne peut être
- * réécrit. Le réglage est alors sans objet et le message reste intact.
+ * Un dépôt IMAP — comme un import par l'API Gmail — échappe à tout ça : rien
+ * n'est envoyé, donc rien ne peut être réécrit. Le réglage est alors sans objet
+ * et le message reste intact.
  */
 export function resolveHeaderMode(target: Target): Exclude<HeaderMode, 'auto'> {
-  if (target.kind === 'imap') return 'redirect';
+  if (target.kind === 'imap' || target.kind === 'gmail-api') return 'redirect';
   if (target.headerMode === 'redirect' || target.headerMode === 'gmail-safe') return target.headerMode;
   return GMAIL_HOSTS.test(target.host.trim()) ? 'gmail-safe' : 'redirect';
 }
@@ -68,7 +69,7 @@ function deliveryAddress(target: Target): string {
   const to = target.to.trim();
   if (to) return to;
   const user = target.user.trim();
-  return target.kind === 'imap' && user.includes('@') ? user : '';
+  return target.kind !== 'smtp' && user.includes('@') ? user : '';
 }
 
 /**
@@ -76,7 +77,8 @@ function deliveryAddress(target: Target): string {
  *
  * En mode `redirect`, le message ressort **identique** : seuls des en-têtes de
  * traçage sont ajoutés au-dessus, exactement comme le ferait un serveur de
- * redirection. En mode `gmail-safe`, le `From:` est réécrit (Gmail l'imposerait
+ * redirection. C'est le mode d'un dépôt IMAP ou d'un import Gmail, où personne
+ * n'a rien à imposer. En mode `gmail-safe`, le `From:` est réécrit (Gmail l'imposerait
  * de toute façon) mais le `Reply-To:` pointe sur l'expéditeur d'origine, donc
  * « Répondre » écrit bien à la bonne personne.
  */

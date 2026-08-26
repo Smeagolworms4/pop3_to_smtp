@@ -51,7 +51,7 @@ const secret = (v: unknown, previous: string): string => {
 };
 
 const HEADER_MODES = ['auto', 'redirect', 'gmail-safe'] as const satisfies readonly HeaderMode[];
-const TARGET_KINDS = ['smtp', 'imap'] as const satisfies readonly TargetKind[];
+const TARGET_KINDS = ['smtp', 'imap', 'gmail-api'] as const satisfies readonly TargetKind[];
 const ENVELOPE_FROM = ['auto', 'original', 'smtp'] as const;
 const SECURITIES = ['tls', 'starttls', 'none'] as const satisfies readonly Pop3Security[];
 const EVENTS = ['error', 'forward', 'run'] as const satisfies readonly NotifyEvent[];
@@ -76,6 +76,12 @@ export function normalizeTarget(input: Raw, previous?: Target): Target {
     to: str(input.to, previous?.to ?? ''),
     folder: str(input.folder, previous?.folder ?? '') || 'INBOX',
     markRead: bool(input.markRead, previous?.markRead ?? false),
+    oauthClientId: str(input.oauthClientId, previous?.oauthClientId ?? ''),
+    oauthClientSecret: secret(input.oauthClientSecret, previous?.oauthClientSecret ?? ''),
+    // Le jeton ne se saisit pas : il s'obtient au bout du parcours
+    // d'autorisation, et l'interface le renvoie masqué comme un mot de passe.
+    oauthRefreshToken: secret(input.oauthRefreshToken, previous?.oauthRefreshToken ?? ''),
+    neverMarkSpam: bool(input.neverMarkSpam, previous?.neverMarkSpam ?? false),
     from: str(input.from, previous?.from ?? ''),
     headerMode: oneOf(input.headerMode, HEADER_MODES, previous?.headerMode ?? 'auto'),
     envelopeFrom: oneOf(input.envelopeFrom, ENVELOPE_FROM, previous?.envelopeFrom ?? 'auto'),
@@ -134,7 +140,12 @@ export function normalizeNotify(input: Raw, previous: NotifySettings): NotifySet
   };
 }
 
-export const maskTarget = (t: Target): Target => ({ ...t, pass: t.pass ? MASK : '' });
+export const maskTarget = (t: Target): Target => ({
+  ...t,
+  pass: t.pass ? MASK : '',
+  oauthClientSecret: t.oauthClientSecret ? MASK : '',
+  oauthRefreshToken: t.oauthRefreshToken ? MASK : '',
+});
 export const maskSource = (s: Source): Source => ({ ...s, pass: s.pass ? MASK : '' });
 
 /** Copie de la configuration sans aucun secret en clair. */

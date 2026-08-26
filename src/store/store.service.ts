@@ -203,6 +203,10 @@ function migrateConfig(config: AppConfig): AppConfig {
       kind: stored.kind ?? 'smtp',
       folder: stored.folder ?? 'INBOX',
       markRead: stored.markRead ?? false,
+      oauthClientId: stored.oauthClientId ?? '',
+      oauthClientSecret: stored.oauthClientSecret ?? '',
+      oauthRefreshToken: stored.oauthRefreshToken ?? '',
+      neverMarkSpam: stored.neverMarkSpam ?? false,
     };
   });
   config.version = CONFIG_VERSION;

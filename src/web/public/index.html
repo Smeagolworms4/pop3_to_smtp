@@ -174,8 +174,12 @@
 
             <v-card-text class="pt-0">
               <div class="d-flex align-center flex-wrap ga-2">
-                <v-chip size="small" variant="tonal" prepend-icon="mdi-server">
+                <v-chip v-if="t.kind !== 'gmail-api'" size="small" variant="tonal"
+                        prepend-icon="mdi-server">
                   {{ t.host }}:{{ t.port }}
+                </v-chip>
+                <v-chip v-else size="small" variant="tonal" prepend-icon="mdi-api">
+                  API Gmail
                 </v-chip>
                 <v-chip size="small" variant="tonal"
                         :prepend-icon="modeOf(t) === 'gmail-safe' ? 'mdi-shield-half-full' : 'mdi-shield-check-outline'">
@@ -305,11 +309,25 @@
         <v-btn-toggle v-model="targetKind" mandatory divided variant="outlined"
                       density="comfortable" class="mb-3">
           <v-btn value="imap" prepend-icon="mdi-inbox-arrow-down">Dépôt IMAP</v-btn>
+          <v-btn value="gmail-api" prepend-icon="mdi-gmail">API Gmail</v-btn>
           <v-btn value="smtp" prepend-icon="mdi-send-outline">Envoi SMTP</v-btn>
         </v-btn-toggle>
 
-        <v-btn class="mb-3 ms-sm-3" size="small" variant="tonal" prepend-icon="mdi-gmail"
+        <v-btn v-if="!isGmailApi" class="mb-3 ms-sm-3" size="small" variant="tonal"
+               prepend-icon="mdi-gmail"
                @click="applyGmailPreset()">Pré-remplir pour Gmail</v-btn>
+
+        <v-alert v-if="isGmailApi" type="success" variant="tonal" density="compact" class="mb-3"
+                 icon="mdi-filter-check-outline">
+          <div class="font-weight-medium mb-1">Intact, et passé par vos filtres</div>
+          <div class="text-body-2">
+            Le message est importé dans la boîte au lieu d'être réexpédié : l'expéditeur d'origine
+            est conservé, comme avec le dépôt IMAP. Mais Gmail le fait passer par sa chaîne de
+            livraison, donc vos filtres, le classement par catégorie et l'antispam s'appliquent.
+            En échange, il faut autoriser l'accès une fois via Google plutôt qu'un simple mot de
+            passe d'application.
+          </div>
+        </v-alert>
 
         <v-alert v-if="isImap" type="success" variant="tonal" density="compact" class="mb-3"
                  icon="mdi-shield-check">
@@ -322,8 +340,8 @@
         </v-alert>
 
         <!-- Aide mot de passe d'application : le point qui bloque tout le monde. -->
-        <v-alert v-if="isGmail(targetForm.host)" type="info" variant="tonal" density="compact"
-                 class="mb-3" icon="mdi-key-outline">
+        <v-alert v-if="isGmail(targetForm.host) && !isGmailApi" type="info" variant="tonal"
+                 density="compact" class="mb-3" icon="mdi-key-outline">
           <div class="font-weight-medium mb-1">Gmail exige un mot de passe d'application</div>
           <div class="text-body-2">
             Le mot de passe de votre compte est refusé par le SMTP. Activez la validation en deux
@@ -346,27 +364,72 @@
             <v-text-field v-if="isImap" v-model="targetForm.folder" label="Dossier"
                           density="comfortable" placeholder="INBOX"
                           hint="INBOX = la boîte de réception" persistent-hint></v-text-field>
-            <v-text-field v-else v-model="targetForm.to" label="Déposer les messages sur"
-                          density="comfortable" placeholder="moi@gmail.com"></v-text-field>
+            <v-text-field v-else v-model="targetForm.to"
+                          :label="isGmailApi ? 'Adresse du compte' : 'Déposer les messages sur'"
+                          density="comfortable" placeholder="moi@gmail.com"
+                          :hint="isGmailApi ? 'Indicatif : la boîte est celle du compte autorisé' : ''"
+                          persistent-hint></v-text-field>
           </v-col>
-          <v-col cols="12" sm="7">
+
+          <!-- Parcours d'autorisation Google : deux champs, un bouton, un état. -->
+          <template v-if="isGmailApi">
+            <v-col cols="12">
+              <v-text-field v-model="targetForm.oauthClientId" label="Identifiant client OAuth"
+                            density="comfortable" autocomplete="off"
+                            placeholder="123456789-xxxx.apps.googleusercontent.com"></v-text-field>
+            </v-col>
+            <v-col cols="12">
+              <v-text-field v-model="targetForm.oauthClientSecret" label="Secret client OAuth"
+                            type="password" density="comfortable"
+                            autocomplete="new-password"></v-text-field>
+            </v-col>
+            <v-col cols="12">
+              <v-alert :type="googleConnected ? 'success' : 'warning'" variant="tonal"
+                       density="compact" class="mb-2"
+                       :icon="googleConnected ? 'mdi-check-decagram' : 'mdi-account-alert-outline'">
+                <div class="text-body-2">
+                  {{ googleConnected
+                     ? 'Compte Google connecté. Reconnectez-le si vous changez de mot de passe Google.'
+                     : 'Compte Google pas encore connecté : renseignez les identifiants du client, puis autorisez l’accès.' }}
+                </div>
+              </v-alert>
+
+              <div class="text-caption text-medium-emphasis mb-1">
+                À déclarer dans la console Google comme URI de redirection autorisée :
+              </div>
+              <v-text-field :model-value="status.oauthRedirectUri" readonly density="compact"
+                            variant="outlined" class="mono mb-2" hide-details
+                            append-inner-icon="mdi-content-copy"
+                            @click:append-inner="copy(status.oauthRedirectUri)"></v-text-field>
+
+              <v-btn color="primary" variant="flat" prepend-icon="mdi-google"
+                     :loading="connecting" @click="connectGoogle()">
+                {{ googleConnected ? 'Reconnecter le compte Google' : 'Connecter le compte Google' }}
+              </v-btn>
+              <v-btn class="ms-2" variant="text" append-icon="mdi-open-in-new"
+                     href="https://console.cloud.google.com/apis/credentials" target="_blank"
+                     rel="noopener">Console Google</v-btn>
+            </v-col>
+          </template>
+
+          <v-col v-if="!isGmailApi" cols="12" sm="7">
             <v-text-field v-model="targetForm.host" :label="hostLabel" density="comfortable"
                           :placeholder="hostPlaceholder"></v-text-field>
           </v-col>
-          <v-col cols="6" sm="3">
+          <v-col v-if="!isGmailApi" cols="6" sm="3">
             <v-select v-model="smtpSecurity" :items="targetSecurityItems" item-title="title"
                       item-value="value" label="Chiffrement" density="comfortable"></v-select>
           </v-col>
-          <v-col cols="6" sm="2">
+          <v-col v-if="!isGmailApi" cols="6" sm="2">
             <v-text-field v-model.number="targetForm.port" label="Port" type="number"
                           density="comfortable"></v-text-field>
           </v-col>
-          <v-col cols="12" sm="6">
+          <v-col v-if="!isGmailApi" cols="12" sm="6">
             <v-text-field v-model="targetForm.user" :label="userLabel" density="comfortable"
                           :hint="isImap ? 'L’adresse complète du compte' : ''" persistent-hint
                           autocomplete="off"></v-text-field>
           </v-col>
-          <v-col cols="12" sm="6">
+          <v-col v-if="!isGmailApi" cols="12" sm="6">
             <v-text-field v-model="targetForm.pass" label="Mot de passe" type="password"
                           density="comfortable" autocomplete="new-password"
                           :hint="isGmail(targetForm.host) ? 'Mot de passe d’application, pas celui du compte' : ''"
@@ -378,7 +441,13 @@
               <v-expansion-panel title="Réglages avancés">
                 <v-expansion-panel-text>
                   <!-- Réécrire des en-têtes n'a de sens que si on réexpédie. -->
-                  <template v-if="isImap">
+                  <template v-if="isGmailApi">
+                    <v-switch v-model="targetForm.neverMarkSpam" color="warning" density="compact"
+                              hide-details
+                              label="Ne jamais classer en spam (désarme le filtre de Gmail)"></v-switch>
+                  </template>
+
+                  <template v-else-if="isImap">
                     <v-text-field v-model="targetForm.to"
                                   label="Adresse de la boîte (facultatif)" density="comfortable"
                                   hint="Sert aux en-têtes de traçage. Vide = l'identifiant IMAP."
@@ -412,8 +481,9 @@
 
                   <v-switch v-model="targetForm.enabled" color="primary" density="compact"
                             hide-details label="Destination active"></v-switch>
-                  <v-switch v-model="targetForm.allowInvalidCert" color="warning" density="compact"
-                            hide-details label="Accepter un certificat auto-signé"></v-switch>
+                  <v-switch v-if="!isGmailApi" v-model="targetForm.allowInvalidCert"
+                            color="warning" density="compact" hide-details
+                            label="Accepter un certificat auto-signé"></v-switch>
                 </v-expansion-panel-text>
               </v-expansion-panel>
             </v-expansion-panels>
@@ -650,6 +720,7 @@ const emptySource = () => ({
 const emptyTarget = () => ({
   id: '', name: '', enabled: true, kind: 'imap', host: '', port: 993, secure: true,
   user: '', pass: '', to: '', folder: 'INBOX', markRead: false, from: '',
+  oauthClientId: '', oauthClientSecret: '', oauthRefreshToken: '', neverMarkSpam: false,
   headerMode: 'auto', envelopeFrom: 'auto', newMessageId: false, allowInvalidCert: false,
 });
 
@@ -668,7 +739,8 @@ const api = async (method, url, body) => {
 createApp({
   data: () => ({
     status: { running: false, config: { sources: [], targets: [], settings: {}, notify: {} },
-              forced: {}, resolvedModes: {}, lastRun: null, nextRunAt: null },
+              forced: {}, resolvedModes: {}, lastRun: null, nextRunAt: null,
+              oauthRedirectUri: '' },
     history: [],
     historySource: null,
     now: Date.now(),
@@ -684,6 +756,7 @@ createApp({
     notifyTested: false,
 
     saving: false,
+    connecting: false,
     testing: '',
     testingForm: false,
     formTest: null,
@@ -760,6 +833,9 @@ createApp({
     },
 
     isImap() { return this.targetForm.kind === 'imap'; },
+    isGmailApi() { return this.targetForm.kind === 'gmail-api'; },
+    /** Le jeton est masqué comme un mot de passe : sa présence suffit à le dire. */
+    googleConnected() { return Boolean(this.targetForm.oauthRefreshToken); },
 
     /**
      * Changer de type reconfigure le formulaire : ports, chiffrement, et même
@@ -772,6 +848,8 @@ createApp({
         if (kind === this.targetForm.kind) return;
         const gmail = this.isGmail(this.targetForm.host);
         this.targetForm.kind = kind;
+        // L'API Gmail ne parle pas à un serveur de messagerie : ni hôte, ni port.
+        if (kind === 'gmail-api') return;
         this.targetForm.secure = kind === 'imap';
         this.targetForm.port = kind === 'imap' ? 993 : 587;
         if (gmail) this.targetForm.host = kind === 'imap' ? 'imap.gmail.com' : 'smtp.gmail.com';
@@ -977,13 +1055,17 @@ createApp({
         secure: imap,
       });
     },
+    /** Enregistre le formulaire et rend la destination telle qu'elle est retenue. */
+    async persistTarget() {
+      const { id } = this.targetForm;
+      return id
+        ? await api('PUT', `/api/targets/${id}`, this.targetForm)
+        : await api('POST', '/api/targets', this.targetForm);
+    },
     async saveTarget() {
       this.saving = true;
       try {
-        const { id } = this.targetForm;
-        const res = id
-          ? await api('PUT', `/api/targets/${id}`, this.targetForm)
-          : await api('POST', '/api/targets', this.targetForm);
+        const res = await this.persistTarget();
         this.targetDialog = false;
         await this.refresh();
         this.toast(
@@ -994,6 +1076,45 @@ createApp({
         this.toast(err.message, 'error');
       } finally {
         this.saving = false;
+      }
+    },
+    /**
+     * Autorisation Google. La destination doit exister avant : c'est elle qui
+     * porte les identifiants du client, et c'est sur elle que le jeton sera
+     * enregistré au retour. On enregistre donc, puis on quitte la page pour
+     * Google — qui nous ramènera sur l'interface.
+     */
+    async connectGoogle() {
+      this.connecting = true;
+      try {
+        const saved = await this.persistTarget();
+        const { url } = await api('POST', `/api/targets/${saved.item.id}/oauth`);
+        window.location.href = url;
+      } catch (err) {
+        this.toast(err.message, 'error');
+        this.connecting = false;
+      }
+    },
+    /** Retour d'autorisation : un message, et une URL qu'on remet au propre. */
+    readOauthResult() {
+      const params = new URLSearchParams(window.location.search);
+      const result = params.get('oauth');
+      if (!result) return;
+
+      if (result === 'ok') {
+        const name = params.get('name');
+        this.toast(`Compte Google connecté${name ? ` pour « ${name} »` : ''}`, 'success');
+      } else {
+        this.toast(`Autorisation Google refusée : ${params.get('message') || 'erreur inconnue'}`, 'error');
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    },
+    async copy(text) {
+      try {
+        await navigator.clipboard.writeText(text || '');
+        this.toast('Copié');
+      } catch {
+        this.toast('Copie impossible : sélectionnez le texte à la main', 'warning');
       }
     },
     async removeTarget(target) {
@@ -1090,18 +1211,21 @@ createApp({
       return target ? target.name : 'destination manquante';
     },
     modeOf(target) {
-      return this.status.resolvedModes[target.id] || (target.kind === 'imap' ? 'imap' : 'redirect');
+      return this.status.resolvedModes[target.id]
+        || (target.kind === 'smtp' ? 'redirect' : target.kind);
     },
     modeLabel(mode) {
       if (mode === 'imap') return 'dépôt direct';
+      if (mode === 'gmail-api') return 'import Gmail, filtres actifs';
       return mode === 'redirect' ? 'redirection fidèle' : 'compatible Gmail';
     },
     targetIcon(target) {
-      if (this.isGmail(target.host)) return 'mdi-gmail';
+      if (target.kind === 'gmail-api' || this.isGmail(target.host)) return 'mdi-gmail';
       return target.kind === 'imap' ? 'mdi-inbox-arrow-down' : 'mdi-server-network';
     },
     /** Ce que la carte affiche sous le nom : la boîte réellement visée. */
     targetBox(target) {
+      if (target.kind === 'gmail-api') return target.to || 'compte Google autorisé';
       if (target.kind !== 'imap') return target.to;
       const box = target.to || target.user;
       const folder = target.folder || 'INBOX';
@@ -1177,6 +1301,8 @@ createApp({
 
   async mounted() {
     await this.refresh();
+    // Au retour de Google, l'URL porte le résultat de l'autorisation.
+    this.readOauthResult();
     // Un rafraîchissement discret : l'écran reste juste sans recharger la page.
     setInterval(() => { this.now = Date.now(); }, 1000);
     setInterval(() => { if (!this.saving) this.refresh(); }, 15000);

@@ -19,10 +19,11 @@ configured entirely from a web interface.
 - **Collects** as many POP3 mailboxes as you like, on a schedule you choose.
 - **Forwards** each message to the destination of your choice — one destination per
   mailbox, as many destinations as you want.
-- **Two ways to deliver**: an **IMAP drop**, which files the message straight into the
-  mailbox without going through any outgoing server, or a classic **SMTP send**. The
-  first is the only one where Gmail does not display collected messages as sent by you
-  (see *[The IMAP drop](#the-imap-drop-the-message-untouched-even-on-gmail)*).
+- **Three ways to deliver**: an **IMAP drop**, which files the message straight into the
+  mailbox without going through any outgoing server; the **Gmail API**, which imports it
+  through your own filters; or a classic **SMTP send**. The first two are the only ones
+  where Gmail does not display collected messages as sent by you (see *[Three ways to
+  deliver](#three-ways-to-deliver)*).
 - **Keeps the original message intact**: sender, subject, date, `Message-ID`, thread,
   attachments and even the DKIM signature. In Gmail it reads like a real redirection,
   not like a bot-generated copy (see *[Making it look like a real
@@ -135,6 +136,20 @@ straight to the SMTP server. Two rules make that possible:
 On top of that, the tool adds the trace headers a real mail server would
 (`Delivered-To`, `Received`, `X-Forwarded-To`, `X-Forwarded-For`).
 
+### Three ways to deliver
+
+|  | SMTP send | IMAP drop | Gmail API |
+|---|---|---|---|
+| Original sender | rewritten by Gmail | **kept** | **kept** |
+| DKIM signature | broken in Gmail-compatible mode | **intact** | **intact** |
+| Shown as "me" in Gmail | yes | **no** | **no** |
+| Filters, categories, spam check | yes | no | **yes** |
+| Authentication | account password | app password | OAuth (once) |
+| Works with | any server | any IMAP server | Gmail only |
+
+The IMAP drop is the simplest and works everywhere; the Gmail API adds your filters, at
+the cost of a setup on Google's side. Both leave the message untouched.
+
 ### The IMAP drop: the message untouched, even on Gmail
 
 A destination comes in two flavours: an **SMTP send** or an **IMAP drop**. The latter
@@ -162,10 +177,44 @@ collected in one go still files itself in the right order.
 One thing to know: a dropped message does not go through Gmail's filters. Neither the
 spam filter nor your own rules — it lands directly in the chosen folder.
 
+### The Gmail API: untouched, and run through your filters
+
+A message dropped over IMAP goes through no delivery chain at all: it lands in the chosen
+folder without your sorting rules, the category classifier or the spam filter having any
+say. For most uses that is fine — but if you have built up Gmail filters over the years,
+they will stay silent.
+
+The Gmail API fixes exactly that. Google describes `users.messages.import` as "*standard
+email delivery scanning and classification similar to receiving via SMTP*": the message
+goes through the delivery pipeline, so **your filters apply**, categories too, and the
+spam classifier as well (an option disarms it). And since nothing is re-sent, the
+original `From:` stays put — it is the IMAP drop with filters on top.
+
+The price is OAuth. Once, on Google's side:
+
+1. **[console.cloud.google.com](https://console.cloud.google.com/)** → create a project.
+2. *APIs & Services* → *Library* → enable the **Gmail API**.
+3. *OAuth consent screen*: **External** user type, an app name and a contact e-mail.
+   **Publish the app** (*Publish* button, status *In production*): left in *Testing*,
+   Google expires the authorization after **7 days**.
+4. *Credentials* → *Create credentials* → *OAuth client ID* → type **Web application**.
+   Under *Authorized redirect URIs*, paste the address the interface shows in the form
+   (`https://your-instance/api/oauth/callback`) — Google matches it character for
+   character.
+5. In the interface: pick the **Gmail API** type, paste the client ID and secret, then
+   **Connect the Google account**. The "unverified app" warning is expected: *Advanced* →
+   *Go to …*.
+
+The app requests a single scope, `gmail.insert`: adding messages. It can neither read
+your mail nor send any. The token obtained never expires, unless you change your Google
+account password, revoke access, or leave the consent screen in *Testing* — in every case
+the interface reports the error and you just click *Connect* again.
+
 ### Two header modes, and why
 
-These modes only apply to an **SMTP send**: an IMAP drop never rewrites anything, and the
-interface hides those settings when the destination is one.
+These modes only apply to an **SMTP send**: neither the IMAP drop nor the Gmail API
+rewrites anything, and the interface hides those settings when the destination is one of
+those two.
 
 | Mode | What it does | When |
 |---|---|---|
@@ -185,7 +234,8 @@ the right person**. Subject, date, `Message-ID` and threading headers are untouc
 either way, so conversations still group correctly.
 
 > **If you want the untouched version with a Gmail destination**, use an **IMAP drop**
-> destination: that is exactly what it is for, and there is nothing else to configure.
+> destination — or the **Gmail API** one if you care about your filters. That is exactly
+> what they are for, and there is nothing else to configure on the message side.
 > Failing that, do not send *through* Gmail but *to* the Gmail address through any other
 > SMTP server (your ISP's, a relay you host, a transactional provider) in *Faithful
 > redirection* mode — bearing in mind that the original sender's DMARC policy still
@@ -265,6 +315,7 @@ src/
   mail/
     pop3.ts               POP3 client (RFC 1939), hand-written, no dependency
     imap.ts               IMAP client (RFC 3501), trimmed to LOGIN, APPEND, STATUS
+    gmail-api.ts          Google OAuth and users.messages.import: delivery with filters
     rewrite.ts            header handling: the heart of the fidelity work
     headers.ts            byte-level RFC 5322 manipulation, RFC 2047 decoding
     smtp.service.ts       nodemailer, raw sending with an explicit envelope
@@ -290,11 +341,12 @@ changes its URLs.
 npm test
 ```
 
-67 tests, no network access needed: a fake POP3 server, a fake IMAP server and a real
-SMTP server (`smtp-server`) are started on the fly. They cover byte-for-byte preservation
+79 tests, no network access needed: a fake POP3 server, a fake IMAP server, a fake Google
+and a real SMTP server (`smtp-server`) are started on the fly. They cover byte-for-byte preservation
 of an 8-bit message, dot-stuffing, folded headers, RFC 2047 decoding, both header modes,
-the IMAP drop (literal, flags, internal date, folder creation, modified UTF-7 names),
-absence of duplicates across two collections, move mode, an SMTP or IMAP rejection
+the IMAP drop (literal, flags, internal date, folder creation, modified UTF-7 names), the
+Gmail API import (code exchange, token caching and expiry, revoked authorization,
+byte-for-byte message), absence of duplicates across two collections, move mode, an SMTP or IMAP rejection
 leaving the message in place, oversized messages, concurrent collections, and persistence
 across a restart.
 
