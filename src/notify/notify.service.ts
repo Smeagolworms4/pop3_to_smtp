@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { makeLogger } from '../logger';
+import { appendNotice } from '../mail/delivery';
 import { SmtpService } from '../mail/smtp.service';
 import { StoreService } from '../store/store.service';
 import type { HistoryEntry, NotifyEvent } from '../types';
@@ -82,10 +83,16 @@ export class NotifyService {
     const target = this.store.getTarget(emailTargetId);
     if (!target) return { channel: 'e-mail', ok: false, message: 'destination introuvable' };
 
-    const to = emailTo.trim() || target.to;
+    const to = emailTo.trim() || target.to || target.user;
     if (!to) return { channel: 'e-mail', ok: false, message: 'aucun destinataire' };
 
     try {
+      // Une destination IMAP n'envoie rien : l'alerte se dépose dans la boîte,
+      // exactement comme les messages relevés.
+      if (target.kind === 'imap') {
+        await appendNotice(target, to, title, text);
+        return { channel: 'e-mail', ok: true, message: `déposé dans ${target.folder || 'INBOX'}` };
+      }
       await this.smtp.sendText(target, to, title, text);
       return { channel: 'e-mail', ok: true, message: `envoyé à ${to}` };
     } catch (err) {

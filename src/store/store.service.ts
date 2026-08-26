@@ -26,7 +26,7 @@ export class StoreService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await fs.mkdir(env.dataDir, { recursive: true });
-    this.config = await readJson(env.configFile, defaultConfig());
+    this.config = migrateConfig(await readJson(env.configFile, defaultConfig()));
     this.state = await readJson(env.stateFile, defaultState());
     this.applyForcedSettings();
     await this.persistConfig();
@@ -186,9 +186,34 @@ async function readJson<T>(file: string, fallback: T): Promise<T> {
   }
 }
 
+/**
+ * Rattrape une configuration écrite par une version antérieure.
+ *
+ * Les destinations d'avant le dépôt IMAP n'ont pas de `kind` : ce sont des
+ * destinations SMTP, et elles doivent le rester — passer à côté ferait basculer
+ * silencieusement une installation qui marchait.
+ */
+function migrateConfig(config: AppConfig): AppConfig {
+  config.targets = (config.targets ?? []).map((target) => {
+    // Le fichier vient du disque : ses champs sont ceux d'une version passée,
+    // pas forcément ceux du type d'aujourd'hui.
+    const stored = target as Partial<Target>;
+    return {
+      ...target,
+      kind: stored.kind ?? 'smtp',
+      folder: stored.folder ?? 'INBOX',
+      markRead: stored.markRead ?? false,
+    };
+  });
+  config.version = CONFIG_VERSION;
+  return config;
+}
+
+const CONFIG_VERSION = 2;
+
 function defaultConfig(): AppConfig {
   return {
-    version: 1,
+    version: CONFIG_VERSION,
     settings: { ...env.defaults },
     targets: [],
     sources: [],

@@ -37,6 +37,7 @@ export const env = {
   /** Délais réseau, en millisecondes. */
   pop3Timeout: num(process.env.POP3_TIMEOUT, 60_000),
   smtpTimeout: num(process.env.SMTP_TIMEOUT, 60_000),
+  imapTimeout: num(process.env.IMAP_TIMEOUT, 60_000),
 
   logLevel: (process.env.LOG_LEVEL || 'info').toLowerCase(),
 };

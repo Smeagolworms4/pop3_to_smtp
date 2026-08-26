@@ -8,6 +8,7 @@ import type {
   Settings,
   Source,
   Target,
+  TargetKind,
 } from '../types';
 
 /**
@@ -50,22 +51,31 @@ const secret = (v: unknown, previous: string): string => {
 };
 
 const HEADER_MODES = ['auto', 'redirect', 'gmail-safe'] as const satisfies readonly HeaderMode[];
+const TARGET_KINDS = ['smtp', 'imap'] as const satisfies readonly TargetKind[];
 const ENVELOPE_FROM = ['auto', 'original', 'smtp'] as const;
 const SECURITIES = ['tls', 'starttls', 'none'] as const satisfies readonly Pop3Security[];
 const EVENTS = ['error', 'forward', 'run'] as const satisfies readonly NotifyEvent[];
 
 export function normalizeTarget(input: Raw, previous?: Target): Target {
-  const secure = bool(input.secure, previous?.secure ?? false);
+  const kind = oneOf(input.kind, TARGET_KINDS, previous?.kind ?? 'smtp');
+  // Le dépôt IMAP se fait presque toujours en TLS direct : c'est le réglage
+  // sensé par défaut, mais jamais celui qu'on impose à une destination
+  // existante qui marchait autrement.
+  const secure = bool(input.secure, previous?.secure ?? kind === 'imap');
+  const defaultPort = kind === 'imap' ? (secure ? 993 : 143) : secure ? 465 : 587;
   return {
     id: previous?.id ?? randomUUID(),
     name: str(input.name, previous?.name ?? '') || 'Destination',
     enabled: bool(input.enabled, previous?.enabled ?? true),
+    kind,
     host: str(input.host, previous?.host ?? ''),
-    port: int(input.port, previous?.port ?? (secure ? 465 : 587), 1, 65535),
+    port: int(input.port, previous?.port ?? defaultPort, 1, 65535),
     secure,
     user: str(input.user, previous?.user ?? ''),
     pass: secret(input.pass, previous?.pass ?? ''),
     to: str(input.to, previous?.to ?? ''),
+    folder: str(input.folder, previous?.folder ?? '') || 'INBOX',
+    markRead: bool(input.markRead, previous?.markRead ?? false),
     from: str(input.from, previous?.from ?? ''),
     headerMode: oneOf(input.headerMode, HEADER_MODES, previous?.headerMode ?? 'auto'),
     envelopeFrom: oneOf(input.envelopeFrom, ENVELOPE_FROM, previous?.envelopeFrom ?? 'auto'),

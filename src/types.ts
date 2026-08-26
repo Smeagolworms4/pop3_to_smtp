@@ -15,25 +15,46 @@ export type HeaderMode = 'auto' | 'redirect' | 'gmail-safe';
 /** Ce qu'on met dans le MAIL FROM de l'enveloppe SMTP. */
 export type EnvelopeFrom = 'auto' | 'original' | 'smtp';
 
-/** Une destination : un serveur SMTP + l'adresse où déposer les messages. */
+/**
+ * Comment les messages atteignent la boîte d'arrivée.
+ *
+ * - `smtp` : on les *envoie*. Le serveur de soumission a son mot à dire sur
+ *   l'expéditeur, et Gmail impose le sien (voir `HeaderMode`).
+ * - `imap` : on les *dépose* directement dans le dossier, par un APPEND. Aucun
+ *   serveur d'envoi n'est traversé : le message arrive exactement tel qu'il
+ *   était, expéditeur et signature DKIM d'origine compris.
+ */
+export type TargetKind = 'smtp' | 'imap';
+
+/** Une destination : un serveur (SMTP ou IMAP) + l'endroit où déposer. */
 export interface Target {
   id: string;
   name: string;
   enabled: boolean;
-  /** Serveur de sortie. */
+  /** Envoi SMTP ou dépôt IMAP. */
+  kind: TargetKind;
+  /** Serveur de sortie (SMTP) ou serveur de la boîte d'arrivée (IMAP). */
   host: string;
   port: number;
-  /** true = TLS direct (465), false = STARTTLS (587/25). */
+  /** true = TLS direct (465 / 993), false = STARTTLS (587 / 143). */
   secure: boolean;
   user: string;
   pass: string;
-  /** Adresse de dépôt : le « vers » de la redirection. */
+  /**
+   * Adresse de dépôt : le « vers » de la redirection. En mode `imap` elle ne
+   * sert qu'aux en-têtes de traçage — la boîte, c'est celle du compte.
+   */
   to: string;
+  /** Dossier IMAP où déposer. Vide = INBOX. */
+  folder: string;
+  /** Déposer le message déjà lu (mode `imap`). */
+  markRead: boolean;
   /**
    * Adresse affichée en From quand on est obligé de la réécrire (mode
    * gmail-safe). Vide = on prend `user`.
    */
   from: string;
+  /** Sans objet en mode `imap` : rien n'est réécrit. */
   headerMode: HeaderMode;
   envelopeFrom: EnvelopeFrom;
   /**

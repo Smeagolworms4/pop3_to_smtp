@@ -57,9 +57,10 @@ export class ApiController {
       config: maskConfig(config),
       // Réglages imposés par le .env : l'interface les affiche verrouillés.
       forced: forcedSettings(),
-      // Mode réellement appliqué par destination, `auto` résolu.
+      // Mode réellement appliqué par destination, `auto` résolu. Une
+      // destination IMAP n'en a pas : rien n'est réécrit chez elle.
       resolvedModes: Object.fromEntries(
-        config.targets.map((t) => [t.id, resolveHeaderMode(t)]),
+        config.targets.map((t) => [t.id, t.kind === 'imap' ? 'imap' : resolveHeaderMode(t)]),
       ),
     };
   }
@@ -230,6 +231,13 @@ export class ApiController {
 }
 
 function requireTarget(target: Target): void {
+  if (target.kind === 'imap') {
+    if (!target.host) throw new BadRequestException('serveur IMAP manquant');
+    if (!target.user) throw new BadRequestException('identifiant IMAP manquant');
+    // L'adresse de dépôt ne sert qu'aux en-têtes de traçage : la boîte, c'est
+    // celle du compte. Rien à exiger de plus.
+    return;
+  }
   if (!target.host) throw new BadRequestException('serveur SMTP manquant');
   if (!target.to) throw new BadRequestException('adresse de destination manquante');
 }

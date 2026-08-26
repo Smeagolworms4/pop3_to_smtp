@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import type { Transporter } from 'nodemailer';
 import { env } from '../env';
 import { makeLogger } from '../logger';
 import { NotifyService } from '../notify/notify.service';
 import { StoreService } from '../store/store.service';
 import type { HistoryEntry, MessageResult, Source, Target } from '../types';
+import { DeliveryChannel, openChannel, verifyTarget } from './delivery';
 import { Pop3Client } from './pop3';
 import { rewriteMessage } from './rewrite';
 import { SmtpService } from './smtp.service';
@@ -20,13 +20,13 @@ export interface TestResult {
 }
 
 /**
- * Le cœur : relever une boîte POP3 et renvoyer ce qu'elle contient vers le
- * SMTP de la destination associée.
+ * Le cœur : relever une boîte POP3 et remettre ce qu'elle contient à la
+ * destination associée — envoi SMTP ou dépôt IMAP, selon ce qu'elle est.
  *
  * Deux invariants tiennent la fiabilité de l'ensemble :
  *
- * - un message n'est marqué « traité » **qu'après** son acceptation par le
- *   serveur SMTP, et n'est supprimé de la boîte source qu'après ça. Une panne
+ * - un message n'est marqué « traité » **qu'après** son acceptation par la
+ *   destination, et n'est supprimé de la boîte source qu'après ça. Une panne
  *   au milieu d'une relève fait au pire un doublon, jamais une perte ;
  * - une seule relève à la fois. Deux passages simultanés sur la même boîte
  *   enverraient les mêmes messages deux fois.
@@ -107,7 +107,7 @@ export class ForwarderService {
     };
 
     let client: Pop3Client | null = null;
-    let transport: Transporter | null = null;
+    let channel: DeliveryChannel | null = null;
 
     try {
       if (!target) throw new Error('aucune destination associée à cette boîte');
@@ -134,10 +134,10 @@ export class ForwarderService {
         );
       }
 
-      if (batch.length) transport = this.smtp.createTransport(target);
+      if (batch.length) channel = await openChannel(target, this.smtp);
 
       for (const item of batch) {
-        const result = await this.forwardOne(client, transport!, source, target, item, maxBytes);
+        const result = await this.forwardOne(client, channel!, source, target, item, maxBytes);
         entry.messages.push(result);
 
         if (result.status === 'forwarded') {
@@ -172,7 +172,7 @@ export class ForwarderService {
       entry.error = errorMessage(err);
       log.error(`${entry.sourceName} :`, entry.error);
     } finally {
-      transport?.close();
+      channel?.close();
       client?.destroy();
       entry.durationMs = Date.now() - startedAt;
       entry.finishedAt = new Date().toISOString();
@@ -189,10 +189,10 @@ export class ForwarderService {
     return entry;
   }
 
-  /** Relève, réécrit et envoie un message. N'émet jamais : le résultat est rendu. */
+  /** Relève, réécrit et remet un message. N'émet jamais : le résultat est rendu. */
   private async forwardOne(
     client: Pop3Client,
-    transport: Transporter,
+    channel: DeliveryChannel,
     source: Source,
     target: Target,
     item: { num: number; uid: string; size: number },
@@ -217,7 +217,7 @@ export class ForwarderService {
       const raw = await client.retr(item.num, maxBytes ? Math.ceil(maxBytes * 1.5) : 0);
       const rewritten = rewriteMessage(raw, source, target);
 
-      await this.smtp.sendRaw(transport, rewritten);
+      await channel.deliver(rewritten);
 
       return {
         ...base,
@@ -256,7 +256,7 @@ export class ForwarderService {
 
   async testTarget(target: Target): Promise<TestResult> {
     try {
-      return { ok: true, message: await this.smtp.verify(target) };
+      return { ok: true, message: await verifyTarget(target, this.smtp) };
     } catch (err) {
       return { ok: false, message: errorMessage(err) };
     }

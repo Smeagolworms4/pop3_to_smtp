@@ -31,8 +31,9 @@ const source = {
 };
 
 const target = (overrides = {}) => ({
-  id: 't1', name: 'Gmail', enabled: true, host: 'smtp.exemple.net', port: 587,
+  id: 't1', name: 'Gmail', enabled: true, kind: 'smtp', host: 'smtp.exemple.net', port: 587,
   secure: false, user: 'relais@exemple.net', pass: 'x', to: 'moi@gmail.com',
+  folder: 'INBOX', markRead: false,
   from: '', headerMode: 'redirect', envelopeFrom: 'auto', newMessageId: false,
   allowInvalidCert: false, ...overrides,
 });
@@ -150,4 +151,37 @@ test('l’adresse d’envoi explicite reste prioritaire', () => {
 
   assert.match(getHeader(splitMessage(out.message).head, 'From'), /<relais@exemple\.net>$/);
   assert.equal(out.envelopeFrom, 'relais@exemple.net');
+});
+
+test('dépôt IMAP : aucun en-tête n’est réécrit, même chez Gmail', () => {
+  // `gmail-safe` demandé sur un serveur Gmail : en SMTP, le From y passerait.
+  const imap = target({
+    kind: 'imap', host: 'imap.gmail.com', port: 993, secure: true,
+    user: 'moi@gmail.com', headerMode: 'gmail-safe', to: '',
+  });
+
+  assert.equal(resolveHeaderMode(imap), 'redirect');
+
+  const { message } = rewriteMessage(RAW, source, imap);
+  const { head } = splitMessage(message);
+
+  assert.equal(getHeader(head, 'From'), '=?UTF-8?B?SsOpcsO0bWU=?= <jerome@exemple.fr>');
+  assert.equal(getHeader(head, 'Reply-To'), undefined);
+  assert.equal(getHeader(head, 'X-Original-From'), undefined);
+  // La signature d'origine survit : rien n'a bougé sous elle.
+  assert.match(getHeader(head, 'DKIM-Signature'), /d=exemple\.fr/);
+  // L'adresse de dépôt est vide : l'identifiant du compte prend le relais.
+  assert.equal(getHeader(head, 'Delivered-To'), 'moi@gmail.com');
+});
+
+test('dépôt IMAP sans adresse ni identifiant : pas d’en-tête bancal', () => {
+  const imap = target({ kind: 'imap', user: 'moi', to: '' });
+  const { message, envelopeTo } = rewriteMessage(RAW, source, imap);
+  const { head } = splitMessage(message);
+
+  assert.equal(envelopeTo, '');
+  assert.equal(getHeader(head, 'Delivered-To'), undefined);
+  assert.equal(getHeader(head, 'X-Forwarded-To'), undefined);
+  // Le Received reste, mais sans destinataire fantôme.
+  assert.doesNotMatch(getHeader(head, 'Received'), /for <>/);
 });

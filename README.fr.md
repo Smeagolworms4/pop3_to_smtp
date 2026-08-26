@@ -5,8 +5,8 @@
 
 *Read this in [English](https://github.com/Smeagolworms4/pop3_to_smtp/blob/main/README.md).*
 
-Relève vos boîtes POP3 et **redirige** tout vers Gmail — ou vers n'importe quel autre
-serveur SMTP. De quoi remplacer la récupération POP3 de Gmail, lente, capricieuse et qui
+Relève vos boîtes POP3 et **redirige** tout vers Gmail — par dépôt IMAP direct, ou vers
+n'importe quel serveur SMTP. De quoi remplacer la récupération POP3 de Gmail, lente, capricieuse et qui
 abandonne en silence. NestJS + Vue 3 / Vuetify, tourne dans Docker, tout se configure
 depuis une interface web.
 
@@ -19,6 +19,10 @@ depuis une interface web.
 - **Relève** autant de boîtes POP3 que vous voulez, au rythme que vous choisissez.
 - **Redirige** chaque message vers la destination de votre choix — une destination par
   boîte, autant de destinations que nécessaire.
+- **Deux façons de livrer** : le **dépôt IMAP**, qui range le message dans la boîte sans
+  passer par le moindre serveur d'envoi, ou l'**envoi SMTP** classique. Le premier est le
+  seul où Gmail n'affiche pas les messages relevés comme envoyés par vous (voir
+  *[Le dépôt IMAP](#le-dépôt-imap--le-message-intact-même-chez-gmail)*).
 - **Garde le message d'origine intact** : expéditeur, objet, date, `Message-ID`, fil de
   discussion, pièces jointes, et jusqu'à la signature DKIM. Dans Gmail, ça se lit comme
   une vraie redirection, pas comme une copie fabriquée par un robot (voir
@@ -133,7 +137,38 @@ partent tels quels vers le SMTP. Deux règles le permettent :
 À cela s'ajoutent les en-têtes de traçage qu'un vrai serveur de mail poserait
 (`Delivered-To`, `Received`, `X-Forwarded-To`, `X-Forwarded-For`).
 
-### Deux modes, et pourquoi
+### Le dépôt IMAP : le message intact, même chez Gmail
+
+Une destination peut être de deux types : **envoi SMTP** ou **dépôt IMAP**. Le second
+ouvre une session IMAP sur la boîte d'arrivée et y **dépose** le message par un `APPEND`,
+exactement comme le fait un logiciel de migration de courrier.
+
+Rien n'est expédié, donc rien ne peut être réécrit : le `From:` reste celui de
+l'expéditeur, la signature DKIM reste valide, et SPF comme DMARC n'ont pas leur mot à
+dire — puisque aucun message ne transite. **C'est le seul moyen d'éviter que Gmail
+affiche tous vos messages relevés comme envoyés par vous**, ce qu'il fait dès que le
+`From:` porte l'adresse de votre compte.
+
+Il suffit d'un serveur IMAP et du même mot de passe d'application que pour le SMTP :
+
+| Champ | Valeur pour Gmail |
+|---|---|
+| Serveur IMAP | `imap.gmail.com`, TLS direct, port `993` |
+| Identifiant | l'adresse complète du compte |
+| Mot de passe | le mot de passe d'application (16 caractères) |
+| Dossier | `INBOX` — ou n'importe quel libellé, créé au besoin |
+
+Les messages arrivent **non lus** (l'option existe pour les déposer déjà lus, sans
+notification), et **datés de leur date d'origine** plutôt que de l'heure de la relève :
+une boîte relevée d'un coup se range donc dans le bon ordre.
+
+Seule chose à savoir : un message déposé ne passe pas par les filtres de Gmail. Ni par
+l'antispam, ni par vos règles de tri — il atterrit directement dans le dossier choisi.
+
+### Deux modes d'en-têtes, et pourquoi
+
+Ces modes ne concernent que l'**envoi SMTP** : un dépôt IMAP ne réécrit jamais rien, et
+l'interface masque d'ailleurs ces réglages quand la destination en est un.
 
 | Mode | Ce qu'il fait | Quand |
 |---|---|---|
@@ -152,12 +187,14 @@ le nom de l'expéditeur reste visible, son adresse part dans `X-Original-From`, 
 `Message-ID` et en-têtes de fil restent intacts dans les deux cas, donc les conversations
 se regroupent normalement.
 
-> **Si vous voulez la version intacte avec une destination Gmail**, n'envoyez pas
-> *via* Gmail : envoyez *vers* l'adresse Gmail en passant par un autre SMTP (celui de
-> votre FAI, un relais que vous hébergez, un service transactionnel). Choisissez
-> *Redirection fidèle*, et le message arrive avec son expéditeur d'origine et une
-> signature valide. Un domaine à vous avec SPF et DKIM rend la chose imparable, mais
-> ce n'est pas nécessaire pour commencer.
+> **Si vous voulez la version intacte avec une destination Gmail**, prenez une
+> destination de type **dépôt IMAP** : c'est fait pour ça, et il n'y a rien d'autre à
+> configurer. À défaut, n'envoyez pas *via* Gmail mais *vers* l'adresse Gmail en passant
+> par un autre SMTP (celui de votre FAI, un relais que vous hébergez, un service
+> transactionnel) en mode *Redirection fidèle* — en gardant en tête que le DMARC de
+> l'expéditeur d'origine s'appliquera : `p=reject` (LinkedIn, les banques, la plupart des
+> grands émetteurs) fera rejeter le message. Un domaine à vous avec SPF et DKIM rend la
+> chose imparable, mais ce n'est pas nécessaire pour commencer.
 
 ### Expéditeur d'enveloppe
 
@@ -182,7 +219,7 @@ modifient depuis l'interface. Le `.env` ne porte que ce qui relève du déploiem
 | `MAX_PER_RUN` | `50` | Messages traités par boîte et par passage. `0` = pas de plafond |
 | `MAX_SIZE_MB` | `25` | Au-delà, le message est ignoré. `0` = pas de limite |
 | `HISTORY_MAX` | `200` | Actions gardées **par boîte** dans l'historique (10 minimum) |
-| `POP3_TIMEOUT` / `SMTP_TIMEOUT` | `60000` | Délais réseau, en millisecondes |
+| `POP3_TIMEOUT` / `SMTP_TIMEOUT` / `IMAP_TIMEOUT` | `60000` | Délais réseau, en millisecondes |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` ou `error` |
 
 Les cinq du milieu sont des **valeurs par défaut** : elles se changent depuis l'interface,
@@ -231,10 +268,12 @@ src/
     store.service.ts      data/config.json + data/state.json, écritures atomiques
   mail/
     pop3.ts               client POP3 (RFC 1939), écrit à la main, sans dépendance
+    imap.ts               client IMAP (RFC 3501), réduit au dépôt : LOGIN, APPEND, STATUS
     rewrite.ts            traitement des en-têtes : le cœur de la fidélité
     headers.ts            manipulation RFC 5322 au niveau octet, décodage RFC 2047
     smtp.service.ts       nodemailer, envoi brut avec enveloppe explicite
-    forwarder.service.ts  orchestration : relever → réécrire → envoyer → consigner
+    delivery.ts           le canal de remise : envoi SMTP ou dépôt IMAP, au choix
+    forwarder.service.ts  orchestration : relever → réécrire → remettre → consigner
   notify/notify.service.ts  e-mail / ntfy / webhook / SMS
   api/api.controller.ts   l'API REST
   web/public/index.html   toute l'interface, en un fichier, sans étape de build
@@ -255,12 +294,13 @@ CDN change ses URL.
 npm test
 ```
 
-47 tests, sans accès réseau : un faux serveur POP3 et un vrai serveur SMTP
-(`smtp-server`) sont démarrés à la volée. Ils couvrent la préservation octet pour octet
-d'un message 8 bits, le dot-stuffing, les en-têtes repliés, le décodage RFC 2047, les
-deux modes d'en-têtes, l'absence de doublon entre deux relèves, le mode déplacement, un
-refus SMTP qui laisse le message en place, les messages trop gros, les relèves
-simultanées, et la persistance après redémarrage.
+67 tests, sans accès réseau : un faux serveur POP3, un faux serveur IMAP et un vrai
+serveur SMTP (`smtp-server`) sont démarrés à la volée. Ils couvrent la préservation octet
+pour octet d'un message 8 bits, le dot-stuffing, les en-têtes repliés, le décodage
+RFC 2047, les deux modes d'en-têtes, le dépôt IMAP (littéral, drapeaux, date interne,
+création du dossier, noms en UTF-7 modifié), l'absence de doublon entre deux relèves, le
+mode déplacement, un refus SMTP ou IMAP qui laisse le message en place, les messages trop
+gros, les relèves simultanées, et la persistance après redémarrage.
 
 Ils tournent à chaque push via GitHub Actions, sur Node 22 et 24.
 

@@ -49,10 +49,26 @@ const GMAIL_HOSTS = /(^|\.)(gmail|googlemail)\.com$|(^|\.)smtp\.google\.com$/i;
  * Gmail en soumission (smtp.gmail.com) réécrit le `From:` dès qu'il ne
  * correspond pas au compte authentifié : garder l'expéditeur d'origine est
  * impossible, autant le faire nous-mêmes proprement plutôt que de le subir.
+ *
+ * Un dépôt IMAP échappe à tout ça : rien n'est envoyé, donc rien ne peut être
+ * réécrit. Le réglage est alors sans objet et le message reste intact.
  */
 export function resolveHeaderMode(target: Target): Exclude<HeaderMode, 'auto'> {
+  if (target.kind === 'imap') return 'redirect';
   if (target.headerMode === 'redirect' || target.headerMode === 'gmail-safe') return target.headerMode;
   return GMAIL_HOSTS.test(target.host.trim()) ? 'gmail-safe' : 'redirect';
+}
+
+/**
+ * Adresse de la boîte d'arrivée, telle qu'elle apparaît dans les en-têtes de
+ * traçage. En dépôt IMAP, `to` est facultatif : l'identifiant du compte fait
+ * tout aussi bien l'affaire, et vaut mieux qu'un `<>` vide.
+ */
+function deliveryAddress(target: Target): string {
+  const to = target.to.trim();
+  if (to) return to;
+  const user = target.user.trim();
+  return target.kind === 'imap' && user.includes('@') ? user : '';
 }
 
 /**
@@ -76,7 +92,7 @@ export function rewriteMessage(raw: Buffer, source: Source, target: Target): Rew
 
   const mode = resolveHeaderMode(target);
   const smtpIdentity = senderIdentity(target);
-  const destination = target.to.trim();
+  const destination = deliveryAddress(target);
   const sourceLabel = source.user || source.name || source.host;
 
   // Le Return-Path est posé par le serveur qui délivre : celui du message
@@ -109,17 +125,22 @@ export function rewriteMessage(raw: Buffer, source: Source, target: Target): Rew
     if (previous) head = prependHeaders(head, [['X-Original-Message-ID', previous]], eol);
   }
 
-  // Traces de la redirection, dans l'ordre où un MTA les empilerait.
-  const trace: Array<[string, string]> = [
-    ['Delivered-To', destination],
-    [
-      'Received',
-      `from ${source.host} by pop3-to-smtp with POP3 for <${destination}>; ${rfc2822Date()}`,
-    ],
-    ['X-Forwarded-To', destination],
-    ['X-Forwarded-For', `${originalFrom?.address || sourceLabel} ${destination}`],
-    ['X-POP3-To-SMTP-Source', sourceLabel],
-  ];
+  // Traces de la redirection, dans l'ordre où un MTA les empilerait. Elles
+  // s'ajoutent *au-dessus* des en-têtes existants : aucune signature DKIM n'en
+  // souffre, y compris en dépôt IMAP où le message doit rester vérifiable.
+  const trace: Array<[string, string]> = [];
+  if (destination) trace.push(['Delivered-To', destination]);
+  trace.push([
+    'Received',
+    `from ${source.host} by pop3-to-smtp with POP3` +
+      (destination ? ` for <${destination}>` : '') +
+      `; ${rfc2822Date()}`,
+  ]);
+  if (destination) {
+    trace.push(['X-Forwarded-To', destination]);
+    trace.push(['X-Forwarded-For', `${originalFrom?.address || sourceLabel} ${destination}`]);
+  }
+  trace.push(['X-POP3-To-SMTP-Source', sourceLabel]);
   head = prependHeaders(head, trace, eol);
 
   const envelopeFrom = pickEnvelopeFrom(target, mode, originalFrom?.address, smtpIdentity);

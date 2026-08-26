@@ -12,6 +12,7 @@ process.env.RUN_ON_START = 'false';
 
 const { SMTPServer } = require('smtp-server');
 const { startFakePop3 } = require('./fake-pop3');
+const { startFakeImap } = require('./fake-imap');
 
 const { StoreService } = require('../dist/store/store.service');
 const { SmtpService } = require('../dist/mail/smtp.service');
@@ -95,9 +96,10 @@ async function buildStack(pop3Port, smtpPort, overrides = {}) {
   const forwarder = new ForwarderService(store, smtp, notify);
 
   const target = {
-    id: 't1', name: 'Boîte cible', enabled: true,
+    id: 't1', name: 'Boîte cible', enabled: true, kind: 'smtp',
     host: '127.0.0.1', port: smtpPort, secure: false,
     user: '', pass: '', to: 'moi@gmail.com', from: 'relais@exemple.net',
+    folder: 'INBOX', markRead: false,
     headerMode: 'redirect', envelopeFrom: 'auto', newMessageId: false,
     allowInvalidCert: true, ...(overrides.target ?? {}),
   };
@@ -385,4 +387,69 @@ test('une boîte bavarde n’efface pas l’historique d’une boîte discrète'
   assert.equal(store.history(50, 's1').length, 10, 's1 est plafonnée à 10');
   assert.equal(store.history(50, 's2').length, 1, 's2 est toujours là');
   assert.ok(store.lastRuns().s2, 's2 garde sa dernière action');
+});
+
+test('destination IMAP : le message est déposé tel quel', async (t) => {
+  const pop3 = await startFakePop3({ messages: [MESSAGE_1] });
+  const imap = await startFakeImap({});
+  t.after(async () => {
+    await pop3.close();
+    await imap.close();
+  });
+
+  const { forwarder } = await buildStack(pop3.port, 0, {
+    target: {
+      kind: 'imap', port: imap.port, secure: false,
+      user: 'moi@gmail.com', pass: 'secret', to: '',
+      // Volontairement incohérent : sur un dépôt IMAP, le mode d'en-têtes n'a
+      // pas à s'appliquer. Rien ne justifierait de réécrire quoi que ce soit.
+      headerMode: 'gmail-safe',
+    },
+  });
+
+  const entry = await forwarder.runSource('s1', 'manual');
+  assert.equal(entry.status, 'ok');
+  assert.equal(entry.forwarded, 1);
+  assert.equal(imap.state.appended.length, 1);
+
+  const [deposited] = imap.state.appended;
+  const { head, body } = splitMessage(deposited.body);
+
+  assert.equal(getHeader(head, 'From'), 'Jean Dupont <jean@exemple.fr>');
+  assert.equal(getHeader(head, 'Message-ID'), '<m1@exemple.fr>');
+  assert.equal(getHeader(head, 'X-Original-From'), undefined, 'rien n’a été réécrit');
+  assert.match(body.toString('latin1'), /Bonjour, voici la facture\./);
+
+  // Faute d'adresse de dépôt, l'identifiant du compte tient le rôle.
+  assert.equal(getHeader(head, 'Delivered-To'), 'moi@gmail.com');
+
+  // Non lu, et daté du message plutôt que de la relève.
+  assert.deepEqual(deposited.flags, []);
+  assert.match(deposited.date, /^30-Jul-2026/);
+  assert.equal(deposited.folder, 'INBOX');
+});
+
+test('destination IMAP : une panne du serveur laisse le message à relever', async (t) => {
+  const pop3 = await startFakePop3({ messages: [MESSAGE_1] });
+  const imap = await startFakeImap({ password: 'le-bon' });
+  t.after(async () => {
+    await pop3.close();
+    await imap.close();
+  });
+
+  const { forwarder } = await buildStack(pop3.port, 0, {
+    target: {
+      kind: 'imap', port: imap.port, secure: false,
+      user: 'moi@gmail.com', pass: 'le-mauvais', to: '',
+    },
+  });
+
+  const failed = await forwarder.runSource('s1', 'manual');
+  assert.equal(failed.status, 'error');
+  assert.equal(failed.forwarded, 0);
+  assert.match(failed.error, /identifiants refusés/);
+
+  // Rien n'a été marqué comme traité : le message repasse au tour suivant.
+  const retry = await forwarder.runSource('s1', 'manual');
+  assert.equal(retry.total, 1);
 });

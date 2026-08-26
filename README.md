@@ -5,9 +5,9 @@
 
 *Read this in [French](https://github.com/Smeagolworms4/pop3_to_smtp/blob/main/README.fr.md).*
 
-Collects your POP3 mailboxes and **forwards** everything to Gmail — or to any other
-SMTP server. A replacement for Gmail's "Check mail from other accounts" feature, which
-is slow, unreliable and silently gives up. NestJS + Vue 3 / Vuetify, runs in Docker,
+Collects your POP3 mailboxes and **forwards** everything to Gmail — by dropping straight
+into it over IMAP, or through any SMTP server. A replacement for Gmail's "Check mail from
+other accounts" feature, which is slow, unreliable and silently gives up. NestJS + Vue 3 / Vuetify, runs in Docker,
 configured entirely from a web interface.
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/smeagolworms4/pop3_to_smtp)](https://hub.docker.com/r/smeagolworms4/pop3_to_smtp)
@@ -19,6 +19,10 @@ configured entirely from a web interface.
 - **Collects** as many POP3 mailboxes as you like, on a schedule you choose.
 - **Forwards** each message to the destination of your choice — one destination per
   mailbox, as many destinations as you want.
+- **Two ways to deliver**: an **IMAP drop**, which files the message straight into the
+  mailbox without going through any outgoing server, or a classic **SMTP send**. The
+  first is the only one where Gmail does not display collected messages as sent by you
+  (see *[The IMAP drop](#the-imap-drop-the-message-untouched-even-on-gmail)*).
 - **Keeps the original message intact**: sender, subject, date, `Message-ID`, thread,
   attachments and even the DKIM signature. In Gmail it reads like a real redirection,
   not like a bot-generated copy (see *[Making it look like a real
@@ -131,7 +135,37 @@ straight to the SMTP server. Two rules make that possible:
 On top of that, the tool adds the trace headers a real mail server would
 (`Delivered-To`, `Received`, `X-Forwarded-To`, `X-Forwarded-For`).
 
-### Two modes, and why
+### The IMAP drop: the message untouched, even on Gmail
+
+A destination comes in two flavours: an **SMTP send** or an **IMAP drop**. The latter
+opens an IMAP session on the receiving mailbox and **files** the message there with an
+`APPEND`, exactly the way a mail migration tool does.
+
+Nothing is sent, so nothing can be rewritten: the `From:` stays the original sender's,
+the DKIM signature stays valid, and neither SPF nor DMARC has any say — no message ever
+travels. **This is the only way to stop Gmail showing every collected message as sent by
+you**, which it does as soon as the `From:` carries your own account address.
+
+All it takes is an IMAP server and the same app password the SMTP side uses:
+
+| Field | Value for Gmail |
+|---|---|
+| IMAP server | `imap.gmail.com`, direct TLS, port `993` |
+| Username | the full account address |
+| Password | the 16-character app password |
+| Folder | `INBOX` — or any label, created on demand |
+
+Messages arrive **unread** (an option drops them already read, without a notification)
+and **dated from their original date** rather than from the collection time, so a mailbox
+collected in one go still files itself in the right order.
+
+One thing to know: a dropped message does not go through Gmail's filters. Neither the
+spam filter nor your own rules — it lands directly in the chosen folder.
+
+### Two header modes, and why
+
+These modes only apply to an **SMTP send**: an IMAP drop never rewrites anything, and the
+interface hides those settings when the destination is one.
 
 | Mode | What it does | When |
 |---|---|---|
@@ -150,11 +184,14 @@ the original address goes into `X-Original-From`, and **`Reply-To` makes "Reply"
 the right person**. Subject, date, `Message-ID` and threading headers are untouched
 either way, so conversations still group correctly.
 
-> **If you want the untouched version with a Gmail destination**, do not send *through*
-> Gmail: send *to* the Gmail address through any other SMTP server (your ISP's, a relay
-> you host, a transactional provider). Choose *Faithful redirection*, and the message
-> arrives with its original sender and a valid signature. A domain of your own with SPF
-> and DKIM makes this rock solid, but it is not required to get started.
+> **If you want the untouched version with a Gmail destination**, use an **IMAP drop**
+> destination: that is exactly what it is for, and there is nothing else to configure.
+> Failing that, do not send *through* Gmail but *to* the Gmail address through any other
+> SMTP server (your ISP's, a relay you host, a transactional provider) in *Faithful
+> redirection* mode — bearing in mind that the original sender's DMARC policy still
+> applies: `p=reject` (LinkedIn, banks, most large senders) will get the message
+> rejected. A domain of your own with SPF and DKIM makes this rock solid, but it is not
+> required to get started.
 
 ### Envelope sender
 
@@ -178,7 +215,7 @@ the interface. The `.env` file only holds what is specific to the deployment:
 | `MAX_PER_RUN` | `50` | Messages handled per mailbox per pass. `0` = no cap |
 | `MAX_SIZE_MB` | `25` | Messages above this are skipped. `0` = no limit |
 | `HISTORY_MAX` | `200` | Actions kept **per mailbox** in the history (10 minimum) |
-| `POP3_TIMEOUT` / `SMTP_TIMEOUT` | `60000` | Network timeouts, in milliseconds |
+| `POP3_TIMEOUT` / `SMTP_TIMEOUT` / `IMAP_TIMEOUT` | `60000` | Network timeouts, in milliseconds |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 
 The five middle ones are **defaults**: they can be changed from the interface, and the
@@ -227,10 +264,12 @@ src/
     store.service.ts      data/config.json + data/state.json, atomic writes
   mail/
     pop3.ts               POP3 client (RFC 1939), hand-written, no dependency
+    imap.ts               IMAP client (RFC 3501), trimmed to LOGIN, APPEND, STATUS
     rewrite.ts            header handling: the heart of the fidelity work
     headers.ts            byte-level RFC 5322 manipulation, RFC 2047 decoding
     smtp.service.ts       nodemailer, raw sending with an explicit envelope
-    forwarder.service.ts  orchestration: collect → rewrite → send → record
+    delivery.ts           the delivery channel: SMTP send or IMAP drop
+    forwarder.service.ts  orchestration: collect → rewrite → deliver → record
   notify/notify.service.ts  e-mail / ntfy / webhook / SMS
   api/api.controller.ts   the REST API
   web/public/index.html   the whole interface, in one file, no build step
@@ -251,12 +290,13 @@ changes its URLs.
 npm test
 ```
 
-47 tests, no network access needed: a fake POP3 server and a real SMTP server
-(`smtp-server`) are started on the fly. They cover byte-for-byte preservation of an
-8-bit message, dot-stuffing, folded headers, RFC 2047 decoding, both header modes,
-absence of duplicates across two collections, move mode, an SMTP rejection leaving the
-message in place, oversized messages, concurrent collections, and persistence across a
-restart.
+67 tests, no network access needed: a fake POP3 server, a fake IMAP server and a real
+SMTP server (`smtp-server`) are started on the fly. They cover byte-for-byte preservation
+of an 8-bit message, dot-stuffing, folded headers, RFC 2047 decoding, both header modes,
+the IMAP drop (literal, flags, internal date, folder creation, modified UTF-7 names),
+absence of duplicates across two collections, move mode, an SMTP or IMAP rejection
+leaving the message in place, oversized messages, concurrent collections, and persistence
+across a restart.
 
 They run on every push through GitHub Actions, on Node 22 and 24.
 
