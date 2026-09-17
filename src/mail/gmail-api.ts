@@ -131,27 +131,44 @@ export function forgetToken(targetId: string): void {
 }
 
 /**
- * Importe un message. Le corps de la requête est le message brut, tel quel :
- * `uploadType=media` évite le ré-encodage en base64url qu'imposerait le format
- * JSON, et laisse le message arriver octet pour octet.
+ * Importe un message brut avec ses métadonnées dans une requête multipart.
+ *
+ * Gmail ne met pas automatiquement les messages importés dans INBOX et ne les
+ * marque pas UNREAD. Les labels sont donc déclarés dans la partie JSON, tandis
+ * que la partie `message/rfc822` conserve le message original octet pour octet.
  */
 export async function importMessage(target: Target, message: Buffer): Promise<string> {
   const token = await accessToken(target);
   const params = new URLSearchParams({
-    uploadType: 'media',
+    uploadType: 'multipart',
     // La date du message plutôt que celle de l'import : une boîte relevée d'un
     // coup se range dans l'ordre où les messages sont arrivés.
     internalDateSource: 'dateHeader',
     neverMarkSpam: target.neverMarkSpam ? 'true' : 'false',
   });
 
+  const boundary = `formail-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const labels = target.markRead ? ['INBOX'] : ['INBOX', 'UNREAD'];
+  const body = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\n` +
+        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify({ labelIds: labels }) +
+        `\r\n--${boundary}\r\n` +
+        'Content-Type: message/rfc822\r\n\r\n',
+      'utf8',
+    ),
+    message,
+    Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'),
+  ]);
+
   const response = await fetchWithTimeout(`${uploadUrl()}?${params.toString()}`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,
-      'content-type': 'message/rfc822',
+      'content-type': `multipart/related; boundary="${boundary}"`,
     },
-    body: new Uint8Array(message),
+    body: new Uint8Array(body),
   });
 
   const text = await response.text();
