@@ -108,7 +108,7 @@ test('sans compte connecté, on ne va pas déranger Google', async (t) => {
   assert.equal(google.state.tokenCalls.length, 0);
 });
 
-test('le message est importé octet pour octet, avec les bons réglages', async (t) => {
+test('le message est importé dans INBOX en conservant ses octets', async (t) => {
   const google = await startFakeGoogle();
   t.after(() => google.close());
 
@@ -121,14 +121,32 @@ test('le message est importé octet pour octet, avec les bons réglages', async 
   assert.match(result, /msg-1/);
 
   const [sent] = google.state.imports;
-  assert.deepEqual(sent.body, raw, 'aucun ré-encodage en route');
-  assert.equal(sent.contentType, 'message/rfc822');
   assert.equal(sent.authorization, 'Bearer access-1');
-  assert.equal(sent.params.uploadType, 'media');
+  assert.equal(sent.params.uploadType, 'multipart');
+  assert.match(sent.contentType, /^multipart\/related; boundary="formail-/);
   // La date du message, pas celle de l'import : l'ordre de la boîte est celui
   // dans lequel les messages sont réellement arrivés.
   assert.equal(sent.params.internalDateSource, 'dateHeader');
   assert.equal(sent.params.neverMarkSpam, 'false');
+
+  const body = sent.body.toString('latin1');
+  assert.match(body, /Content-Type: application\/json; charset=UTF-8/);
+  assert.match(body, /"labelIds":\["INBOX","UNREAD"\]/);
+  assert.ok(
+    sent.body.includes(raw),
+    'le message RFC822 original est inclus octet pour octet dans le multipart',
+  );
+});
+
+test('markRead importe dans INBOX sans label UNREAD', async (t) => {
+  const google = await startFakeGoogle();
+  t.after(() => google.close());
+
+  await importMessage(target({ markRead: true }), Buffer.from('Subject: lu\r\n\r\ncorps\r\n'));
+  const body = google.state.imports[0].body.toString('utf8');
+
+  assert.match(body, /"labelIds":\["INBOX"\]/);
+  assert.doesNotMatch(body, /UNREAD/);
 });
 
 test('l’option antispam se répercute sur la requête', async (t) => {
