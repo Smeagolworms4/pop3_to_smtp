@@ -43,6 +43,8 @@
   "sources.dialogEdit": "Edit mailbox",
   "sources.namePlaceholder": "ISP mailbox",
   "sources.forwardTo": "Forward to",
+  "sources.gmailLabel": "Gmail label",
+  "sources.gmailLabelHint": "Empty = POP3 account address. Used only with a Gmail API destination.",
   "sources.server": "POP3 server",
   "sources.serverPlaceholder": "pop.my-isp.com",
   "sources.frequency": "Collection interval",

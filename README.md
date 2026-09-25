@@ -219,10 +219,19 @@ The price is OAuth. Once, on Google's side:
    **Connect the Google account**. The "unverified app" warning is expected: *Advanced* →
    *Go to …*.
 
-The app requests a single scope, `gmail.insert`: adding messages. It can neither read
-your mail nor send any. The token obtained never expires, unless you change your Google
-account password, revoke access, or leave the consent screen in *Testing* — in every case
-the interface reports the error and you just click *Connect* again.
+Each POP3 mailbox delivered through the Gmail API can have its own Gmail label. The
+setting is shown in the mailbox form only when its destination is a **Gmail API**
+destination. Leave it empty to use the POP3 account address (for example
+`user@example.com`); enter another value to override it. An existing user label is
+reused, otherwise it is created on the first delivery.
+
+The app requests two narrow scopes: `gmail.insert` to add messages and `gmail.labels`
+to find or create those source labels. It can neither read your mail nor send any.
+Existing Gmail API destinations authorized by an older version need to be connected once
+again so Google can grant the new label scope. The token then stays valid unless you
+change your Google account password, revoke access, or leave the consent screen in
+*Testing* — in every case the interface reports the error and you just click *Connect*
+again.
 
 ### Two header modes, and why
 

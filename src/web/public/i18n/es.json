@@ -43,6 +43,8 @@
   "sources.dialogEdit": "Modificar el buzón",
   "sources.namePlaceholder": "Buzón del proveedor",
   "sources.forwardTo": "Redirigir a",
+  "sources.gmailLabel": "Etiqueta de Gmail",
+  "sources.gmailLabelHint": "Vacío = dirección de la cuenta POP3. Solo se usa con un destino de API de Gmail.",
   "sources.server": "Servidor POP3",
   "sources.serverPlaceholder": "pop.mi-proveedor.es",
   "sources.frequency": "Frecuencia de recogida",

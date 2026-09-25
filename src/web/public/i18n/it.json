@@ -43,6 +43,8 @@
   "sources.dialogEdit": "Modifica la casella",
   "sources.namePlaceholder": "Casella del provider",
   "sources.forwardTo": "Inoltra verso",
+  "sources.gmailLabel": "Etichetta Gmail",
+  "sources.gmailLabelHint": "Vuoto = indirizzo dell'account POP3. Usato solo con una destinazione API Gmail.",
   "sources.server": "Server POP3",
   "sources.serverPlaceholder": "pop.mio-provider.it",
   "sources.frequency": "Frequenza di prelievo",

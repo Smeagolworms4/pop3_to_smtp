@@ -71,6 +71,29 @@ test('tout ce que le gabarit référence est déclaré dans le composant', () =>
   assert.deepEqual(missing, [], `référencés par le gabarit mais absents : ${missing.join(', ')}`);
 });
 
+test('le libellé Gmail n’apparaît que pour une destination API Gmail', () => {
+  assert.match(
+    template,
+    /v-if="sourceUsesGmailApi"[\s\S]{0,500}v-model="sourceForm\.gmailLabel"/,
+  );
+
+  const computed = componentOptions().computed.sourceUsesGmailApi;
+  assert.equal(
+    computed.call({
+      targets: [{ id: 'gmail', kind: 'gmail-api' }],
+      sourceForm: { targetId: 'gmail' },
+    }),
+    true,
+  );
+  assert.equal(
+    computed.call({
+      targets: [{ id: 'smtp', kind: 'smtp' }],
+      sourceForm: { targetId: 'smtp' },
+    }),
+    false,
+  );
+});
+
 test('aucune propriété du composant ne porte deux noms différents', () => {
   const options = componentOptions();
   const data = Object.keys(options.data());

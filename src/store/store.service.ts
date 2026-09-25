@@ -194,6 +194,14 @@ async function readJson<T>(file: string, fallback: T): Promise<T> {
  * silencieusement une installation qui marchait.
  */
 function migrateConfig(config: AppConfig): AppConfig {
+  config.sources = (config.sources ?? []).map((source) => {
+    const stored = source as Partial<Source>;
+    return {
+      ...source,
+      gmailLabel: stored.gmailLabel ?? '',
+    };
+  });
+
   config.targets = (config.targets ?? []).map((target) => {
     // Le fichier vient du disque : ses champs sont ceux d'une version passée,
     // pas forcément ceux du type d'aujourd'hui.
@@ -213,7 +221,7 @@ function migrateConfig(config: AppConfig): AppConfig {
   return config;
 }
 
-const CONFIG_VERSION = 2;
+const CONFIG_VERSION = 3;
 
 function defaultConfig(): AppConfig {
   return {

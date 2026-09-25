@@ -47,7 +47,7 @@ export interface Target {
   to: string;
   /** Dossier IMAP où déposer. Vide = INBOX. */
   folder: string;
-  /** Déposer le message déjà lu (mode `imap`). */
+  /** Déposer/importer le message déjà lu (modes `imap` et `gmail-api`). */
   markRead: boolean;
   /**
    * Identifiants OAuth du client Google (mode `gmail-api`). Ils viennent de la
@@ -98,6 +98,12 @@ export interface Source {
   pass: string;
   /** Destination vers laquelle renvoyer ce que contient cette boîte. */
   targetId: string;
+  /**
+   * Libellé Gmail appliqué aux messages de cette source en mode API Gmail.
+   * Vide = utiliser l'identifiant POP3 (`user`), puis le nom en dernier recours.
+   * Sans objet pour les autres destinations.
+   */
+  gmailLabel: string;
   /**
    * Délai de relève propre à cette boîte, en minutes.
    * `null` = suit le réglage global, `0` = jamais (relève manuelle uniquement).
