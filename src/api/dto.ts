@@ -102,6 +102,7 @@ export function normalizeSource(input: Raw, previous?: Source): Source {
     user: str(input.user, previous?.user ?? ''),
     pass: secret(input.pass, previous?.pass ?? ''),
     targetId: str(input.targetId, previous?.targetId ?? ''),
+    gmailLabel: str(input.gmailLabel, previous?.gmailLabel ?? ''),
     refreshMinutes: inherited(input.refreshMinutes, previous?.refreshMinutes ?? null, 0, 10_080),
     maxPerRun: inherited(input.maxPerRun, previous?.maxPerRun ?? null, 0, 100_000),
     deleteAfterFetch: bool(input.deleteAfterFetch, previous?.deleteAfterFetch ?? false),

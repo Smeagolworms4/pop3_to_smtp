@@ -43,6 +43,8 @@
   "sources.dialogEdit": "Modifier la boîte",
   "sources.namePlaceholder": "Boîte du FAI",
   "sources.forwardTo": "Rediriger vers",
+  "sources.gmailLabel": "Libellé Gmail",
+  "sources.gmailLabelHint": "Vide = adresse du compte POP3. Utilisé uniquement avec une destination API Gmail.",
   "sources.server": "Serveur POP3",
   "sources.serverPlaceholder": "pop.mon-fai.fr",
   "sources.frequency": "Fréquence de relève",

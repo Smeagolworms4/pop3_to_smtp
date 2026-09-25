@@ -134,7 +134,10 @@ export class ForwarderService {
         );
       }
 
-      if (batch.length) channel = await openChannel(target, this.smtp);
+      if (batch.length) {
+        const gmailLabel = source.gmailLabel?.trim() || source.user.trim() || source.name;
+        channel = await openChannel(target, this.smtp, gmailLabel);
+      }
 
       for (const item of batch) {
         const result = await this.forwardOne(client, channel!, source, target, item, maxBytes);

@@ -223,11 +223,19 @@ Le prix à payer est OAuth. À faire une fois :
    puis **Connecter le compte Google**. L'écran d'avertissement « application non
    vérifiée » est normal : *Paramètres avancés* → *Accéder à …*.
 
-L'application ne demande qu'un seul droit, `gmail.insert` : ajouter des messages. Elle ne
-peut ni lire votre courrier, ni en envoyer. Le jeton obtenu ne périme pas, sauf si vous
-changez le mot de passe de votre compte Google, révoquez l'accès, ou laissez l'écran de
-consentement en *Test* — dans tous les cas l'interface affiche l'erreur et il suffit de
-recliquer sur *Connecter*.
+Chaque boîte POP3 livrée par l'API Gmail peut avoir son propre libellé Gmail. Le réglage
+n'apparaît dans le formulaire de la boîte que si sa destination est de type **API Gmail**.
+Laissez-le vide pour utiliser l'adresse du compte POP3 (par exemple
+`user@example.com`), ou saisissez une autre valeur pour la remplacer. Un libellé
+utilisateur existant est réutilisé ; sinon il est créé à la première livraison.
+
+L'application demande deux droits ciblés : `gmail.insert` pour ajouter les messages et
+`gmail.labels` pour trouver ou créer ces libellés de provenance. Elle ne peut ni lire
+votre courrier, ni en envoyer. Les destinations API Gmail autorisées avec une ancienne
+version doivent être reconnectées une fois afin que Google accorde le nouveau droit sur
+les libellés. Le jeton reste ensuite valable, sauf si vous changez le mot de passe du
+compte Google, révoquez l'accès, ou laissez l'écran de consentement en *Test* — dans tous
+les cas l'interface affiche l'erreur et il suffit de recliquer sur *Connecter*.
 
 ### Deux modes d'en-têtes, et pourquoi
 

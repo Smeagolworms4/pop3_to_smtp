@@ -8,9 +8,11 @@ const {
   authorizationUrl,
   exchangeCode,
   forgetToken,
+  ensureLabel,
   importMessage,
   verifyAccess,
   GMAIL_SCOPE,
+  GMAIL_SCOPES,
 } = require('../dist/mail/gmail-api');
 const { startFakeGoogle } = require('./fake-google');
 
@@ -33,9 +35,12 @@ test('l’URL d’autorisation demande le minimum, et de quoi durer', () => {
   assert.equal(params.get('client_id'), 'client-1');
   assert.equal(params.get('redirect_uri'), 'https://mail.exemple.fr/api/oauth/callback');
   assert.equal(params.get('state'), 'jeton');
-  // Un seul droit : ajouter des messages. Ni lecture, ni envoi.
+  // Insertion des messages + gestion de leurs libellés de source, sans droit
+  // de lecture du courrier ni d'envoi.
   assert.equal(params.get('scope'), GMAIL_SCOPE);
-  assert.match(GMAIL_SCOPE, /gmail\.insert$/);
+  assert.deepEqual(params.get('scope').split(' ').sort(), [...GMAIL_SCOPES].sort());
+  assert.match(GMAIL_SCOPE, /gmail\.insert/);
+  assert.match(GMAIL_SCOPE, /gmail\.labels/);
   // Sans ces deux-là, pas de jeton de rafraîchissement — donc pas de relève
   // automatique une heure plus tard.
   assert.equal(params.get('access_type'), 'offline');
@@ -117,7 +122,7 @@ test('le message est importé dans INBOX en conservant ses octets', async (t) =>
     'latin1',
   );
 
-  const result = await importMessage(target(), raw);
+  const result = await importMessage(target(), raw, ['Label_source']);
   assert.match(result, /msg-1/);
 
   const [sent] = google.state.imports;
@@ -128,25 +133,61 @@ test('le message est importé dans INBOX en conservant ses octets', async (t) =>
   // dans lequel les messages sont réellement arrivés.
   assert.equal(sent.params.internalDateSource, 'dateHeader');
   assert.equal(sent.params.neverMarkSpam, 'false');
-
-  const body = sent.body.toString('latin1');
-  assert.match(body, /Content-Type: application\/json; charset=UTF-8/);
-  assert.match(body, /"labelIds":\["INBOX","UNREAD"\]/);
-  assert.ok(
-    sent.body.includes(raw),
-    'le message RFC822 original est inclus octet pour octet dans le multipart',
-  );
+  assert.deepEqual(sent.metadata, { labelIds: ['INBOX', 'UNREAD', 'Label_source'] });
+  assert.deepEqual(sent.message, raw, 'aucun ré-encodage du RFC822 en route');
 });
 
 test('markRead importe dans INBOX sans label UNREAD', async (t) => {
   const google = await startFakeGoogle();
   t.after(() => google.close());
 
-  await importMessage(target({ markRead: true }), Buffer.from('Subject: lu\r\n\r\ncorps\r\n'));
-  const body = google.state.imports[0].body.toString('utf8');
+  await importMessage(
+    target({ markRead: true }),
+    Buffer.from('Subject: lu\r\n\r\ncorps\r\n'),
+    ['Label_source'],
+  );
 
-  assert.match(body, /"labelIds":\["INBOX"\]/);
-  assert.doesNotMatch(body, /UNREAD/);
+  assert.deepEqual(google.state.imports[0].metadata, {
+    labelIds: ['INBOX', 'Label_source'],
+  });
+});
+
+test('un libellé de source existant est réutilisé', async (t) => {
+  const google = await startFakeGoogle({
+    labels: [{ id: 'Label_7', name: 'Boîte du FAI', type: 'user' }],
+  });
+  t.after(() => google.close());
+
+  assert.equal(await ensureLabel(target(), 'Boîte du FAI'), 'Label_7');
+  assert.equal(google.state.labelLists, 1);
+  assert.equal(google.state.labelCreates.length, 0);
+});
+
+test('un libellé de source manquant est créé depuis son nom', async (t) => {
+  const google = await startFakeGoogle();
+  t.after(() => google.close());
+
+  const id = await ensureLabel(target(), '  Boîte du FAI  ');
+  assert.equal(id, 'Label_1');
+  assert.equal(google.state.labelLists, 1);
+  assert.deepEqual(google.state.labelCreates, [
+    {
+      name: 'Boîte du FAI',
+      labelListVisibility: 'labelShow',
+      messageListVisibility: 'show',
+    },
+  ]);
+});
+
+test('un ancien jeton sans gmail.labels demande une reconnexion', async (t) => {
+  const google = await startFakeGoogle({
+    labelListError: {
+      error: { code: 403, message: 'Request had insufficient authentication scopes.' },
+    },
+  });
+  t.after(() => google.close());
+
+  await assert.rejects(ensureLabel(target(), 'Boîte du FAI'), /reconnectez le compte.*gmail\.labels/s);
 });
 
 test('l’option antispam se répercute sur la requête', async (t) => {
@@ -169,10 +210,11 @@ test('un refus de Google est remonté avec son propre message', async (t) => {
   );
 });
 
-test('la vérification se contente d’obtenir un jeton', async (t) => {
+test('la vérification contrôle aussi l’accès aux libellés', async (t) => {
   const google = await startFakeGoogle();
   t.after(() => google.close());
 
   assert.match(await verifyAccess(target()), /autorisation valide/);
+  assert.equal(google.state.labelLists, 1, 'le droit gmail.labels est vérifié');
   assert.equal(google.state.imports.length, 0, 'rien n’est déposé dans la boîte');
 });

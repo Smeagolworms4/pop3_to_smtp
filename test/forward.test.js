@@ -477,12 +477,42 @@ test('destination API Gmail : le message est importé sans réécriture', async 
   assert.equal(entry.status, 'ok');
   assert.equal(entry.forwarded, 1);
   assert.equal(google.state.imports.length, 1);
+  assert.equal(google.state.labelLists, 1, 'un seul lookup pour toute la relève');
+  assert.equal(google.state.labelCreates.length, 1);
+  assert.equal(google.state.labelCreates[0].name, 'moi@fai.fr');
+  assert.deepEqual(google.state.imports[0].metadata.labelIds, [
+    'INBOX',
+    'UNREAD',
+    'Label_1',
+  ]);
 
-  const { head, body } = splitMessage(google.state.imports[0].body);
+  const { head, body } = splitMessage(google.state.imports[0].message);
   assert.equal(getHeader(head, 'From'), 'Jean Dupont <jean@exemple.fr>');
   assert.equal(getHeader(head, 'X-Original-From'), undefined);
   assert.equal(getHeader(head, 'Delivered-To'), 'moi@gmail.com');
   assert.match(body.toString('latin1'), /Bonjour, voici la facture\./);
+});
+
+test('destination API Gmail : le libellé configuré remplace l’adresse POP3', async (t) => {
+  const pop3 = await startFakePop3({ messages: [MESSAGE_1] });
+  const google = await startFakeGoogle();
+  t.after(async () => {
+    await pop3.close();
+    await google.close();
+  });
+
+  const { forwarder } = await buildStack(pop3.port, 0, {
+    target: {
+      kind: 'gmail-api', to: 'moi@gmail.com',
+      oauthClientId: 'client-1', oauthClientSecret: 'secret-1', oauthRefreshToken: 'refresh-1',
+      neverMarkSpam: false,
+    },
+    source: { gmailLabel: 'Archives FAI' },
+  });
+
+  const entry = await forwarder.runSource('s1', 'manual');
+  assert.equal(entry.status, 'ok');
+  assert.equal(google.state.labelCreates[0].name, 'Archives FAI');
 });
 
 test('dépôt refusé en mode déplacement : la boîte source garde le message', async (t) => {

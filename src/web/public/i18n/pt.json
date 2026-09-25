@@ -43,6 +43,8 @@
   "sources.dialogEdit": "Editar a caixa",
   "sources.namePlaceholder": "Caixa do operador",
   "sources.forwardTo": "Reencaminhar para",
+  "sources.gmailLabel": "Marcador do Gmail",
+  "sources.gmailLabelHint": "Vazio = endereço da conta POP3. Usado apenas com um destino da API Gmail.",
   "sources.server": "Servidor POP3",
   "sources.serverPlaceholder": "pop.meu-operador.pt",
   "sources.frequency": "Frequência de recolha",

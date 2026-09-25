@@ -43,6 +43,8 @@
   "sources.dialogEdit": "Postfach bearbeiten",
   "sources.namePlaceholder": "Postfach des Anbieters",
   "sources.forwardTo": "Weiterleiten an",
+  "sources.gmailLabel": "Gmail-Label",
+  "sources.gmailLabelHint": "Leer = POP3-Kontoadresse. Wird nur mit einem Gmail-API-Ziel verwendet.",
   "sources.server": "POP3-Server",
   "sources.serverPlaceholder": "pop.mein-anbieter.de",
   "sources.frequency": "Abrufintervall",

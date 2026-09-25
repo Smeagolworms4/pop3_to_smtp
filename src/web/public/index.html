@@ -239,6 +239,12 @@
             <v-select v-model="sourceForm.targetId" :items="targetItems" item-title="title"
                       item-value="value" :label="t('sources.forwardTo')" density="comfortable"></v-select>
           </v-col>
+          <v-col cols="12" v-if="sourceUsesGmailApi">
+            <v-text-field v-model="sourceForm.gmailLabel" :label="t('sources.gmailLabel')"
+                          density="comfortable"
+                          :placeholder="sourceForm.user || sourceForm.name || t('sources.namePlaceholder')"
+                          :hint="t('sources.gmailLabelHint')" persistent-hint></v-text-field>
+          </v-col>
           <v-col cols="12" sm="7">
             <v-text-field v-model="sourceForm.host" :label="t('sources.server')" density="comfortable"
                           :placeholder="t('sources.serverPlaceholder')"></v-text-field>
@@ -732,7 +738,7 @@ const loadMessages = async (lang) => {
 
 const emptySource = () => ({
   id: '', name: '', enabled: true, host: '', port: 995, security: 'tls',
-  user: '', pass: '', targetId: '', refreshMinutes: null, maxPerRun: null,
+  user: '', pass: '', targetId: '', gmailLabel: '', refreshMinutes: null, maxPerRun: null,
   deleteAfterFetch: false, allowInvalidCert: false,
 });
 
@@ -853,6 +859,9 @@ createApp({
 
     targetItems() {
       return this.targets.map((t) => ({ title: `${t.name} — ${t.to}`, value: t.id }));
+    },
+    sourceUsesGmailApi() {
+      return this.targets.find((t) => t.id === this.sourceForm.targetId)?.kind === 'gmail-api';
     },
 
     /**

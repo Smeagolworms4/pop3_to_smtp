@@ -22,12 +22,19 @@ const tokenUrl = () => process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapi
 const uploadUrl = () =>
   process.env.GMAIL_UPLOAD_URL ||
   'https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/import';
+const labelsUrl = () =>
+  process.env.GMAIL_LABELS_URL || 'https://gmail.googleapis.com/gmail/v1/users/me/labels';
 
 /**
- * Le seul droit demandé : insérer. Pas de lecture de la boîte, pas d'envoi —
- * si le jeton fuit, il ne permet rien d'autre que d'y ajouter des messages.
+ * Deux droits étroits : insérer les messages, puis gérer uniquement les
+ * libellés Gmail qui identifient leur boîte POP3 d'origine. Aucun droit de
+ * lecture du courrier ni d'envoi n'est demandé.
  */
-export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.insert';
+export const GMAIL_SCOPES = [
+  'https://www.googleapis.com/auth/gmail.insert',
+  'https://www.googleapis.com/auth/gmail.labels',
+] as const;
+export const GMAIL_SCOPE = GMAIL_SCOPES.join(' ');
 
 const HTTP_TIMEOUT = 30_000;
 
@@ -130,6 +137,60 @@ export function forgetToken(targetId: string): void {
   tokens.delete(targetId);
 }
 
+interface GmailLabel {
+  id?: string;
+  name?: string;
+  type?: string;
+}
+
+/** Liste les libellés sans lire aucun message. */
+async function listLabels(target: Target): Promise<GmailLabel[]> {
+  const token = await accessToken(target);
+  const response = await fetchWithTimeout(labelsUrl(), {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(describeLabelError(response.status, text));
+
+  const labels = safeParse(text)?.labels;
+  return Array.isArray(labels) ? labels : [];
+}
+
+/**
+ * Rend l'id du libellé utilisateur portant ce nom, et le crée s'il manque.
+ * Un nom vide signifie qu'aucun libellé de source n'est demandé.
+ */
+export async function ensureLabel(target: Target, rawName: string): Promise<string> {
+  const name = rawName.trim();
+  if (!name) return '';
+
+  const existing = (await listLabels(target)).find(
+    (label) => label?.type === 'user' && label?.name === name && label?.id,
+  );
+  if (existing?.id) return String(existing.id);
+
+  const token = await accessToken(target);
+  const response = await fetchWithTimeout(labelsUrl(), {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      name,
+      labelListVisibility: 'labelShow',
+      messageListVisibility: 'show',
+    }),
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(describeLabelError(response.status, text));
+
+  const id = safeParse(text)?.id;
+  if (!id) throw new Error(`Google n’a pas renvoyé l’identifiant du libellé « ${name} »`);
+  return String(id);
+}
+
 /**
  * Importe un message brut avec ses métadonnées dans une requête multipart.
  *
@@ -137,7 +198,11 @@ export function forgetToken(targetId: string): void {
  * marque pas UNREAD. Les labels sont donc déclarés dans la partie JSON, tandis
  * que la partie `message/rfc822` conserve le message original octet pour octet.
  */
-export async function importMessage(target: Target, message: Buffer): Promise<string> {
+export async function importMessage(
+  target: Target,
+  message: Buffer,
+  extraLabelIds: string[] = [],
+): Promise<string> {
   const token = await accessToken(target);
   const params = new URLSearchParams({
     uploadType: 'multipart',
@@ -149,6 +214,9 @@ export async function importMessage(target: Target, message: Buffer): Promise<st
 
   const boundary = `formail-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const labels = target.markRead ? ['INBOX'] : ['INBOX', 'UNREAD'];
+  for (const labelId of extraLabelIds) {
+    if (labelId && !labels.includes(labelId)) labels.push(labelId);
+  }
   const body = Buffer.concat([
     Buffer.from(
       `--${boundary}\r\n` +
@@ -179,12 +247,13 @@ export async function importMessage(target: Target, message: Buffer): Promise<st
 }
 
 /**
- * Vérifie ce qui peut l'être sans toucher à la boîte : obtenir un jeton prouve
- * que les identifiants du client et l'autorisation tiennent toujours. Le droit
- * demandé ne permet pas de lire le profil, donc on ne va pas plus loin.
+ * Vérifie l'autorisation sans toucher aux messages : on obtient un jeton puis
+ * on liste seulement les libellés. Cela prouve à la fois gmail.insert (jeton
+ * accordé avec le scope demandé) et gmail.labels, sans lire le courrier.
  */
 export async function verifyAccess(target: Target): Promise<string> {
-  await accessToken(target);
+  // Vérifie aussi que les anciens jetons ont été réautorisés avec gmail.labels.
+  await listLabels(target);
   return 'compte Google connecté, autorisation valide';
 }
 
@@ -215,6 +284,17 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   } finally {
     clearTimeout(timer);
   }
+}
+
+function describeLabelError(status: number, text: string): string {
+  const detail = describeError(status, text);
+  if (status === 401 || status === 403) {
+    return (
+      'accès aux libellés Gmail refusé : reconnectez le compte Google depuis l’interface ' +
+      `pour autoriser gmail.labels (${detail})`
+    );
+  }
+  return detail;
 }
 
 /** Le message d'erreur de Google est bien plus parlant que son code HTTP. */
